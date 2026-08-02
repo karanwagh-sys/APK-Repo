@@ -1,0 +1,252 @@
+<!-- ============================================================
+     Rider DASHBOARD
+============================================================= -->
+
+<div id="dashboardContainer" class="dashboard-container">
+
+    <!-- ===========================================
+         Page Header
+    ============================================ -->
+
+    <div class="page-header">
+
+        <div>
+
+            <h1>
+
+                Dashboard
+
+            </h1>
+
+            <p>
+
+                Welcome back,
+                <span id="dashboardUserName">
+
+                    User
+
+                </span>
+
+            </p>
+
+        </div>
+
+        <div>
+
+            <button
+                id="btnRefreshDashboard"
+                class="secondary-btn">
+
+                Refresh
+
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- ===========================================
+     Dashboard Cards
+============================================ -->
+
+<div class="dashboard-cards">
+
+    <div class="dashboard-card pending">
+
+        <div class="card-title">
+            Pending
+        </div>
+
+        <div id="dashboardPending" class="card-value">
+            0
+        </div>
+
+    </div>
+
+    <div class="dashboard-card under-review">
+
+        <div class="card-title">
+            Under Review
+        </div>
+
+        <div id="dashboardUnderReview" class="card-value">
+            0
+        </div>
+
+    </div>
+
+    <div class="dashboard-card approved">
+
+        <div class="card-title">
+            Approved
+        </div>
+
+        <div id="dashboardApproved" class="card-value">
+            0
+        </div>
+
+    </div>
+
+    <div class="dashboard-card rejected">
+
+        <div class="card-title">
+            Rejected
+        </div>
+
+        <div id="dashboardRejected" class="card-value">
+            0
+        </div>
+
+    </div>
+
+    <div class="dashboard-card total">
+
+        <div class="card-title">
+            Total
+        </div>
+
+        <div id="dashboardTotal" class="card-value">
+            0
+        </div>
+
+    </div>
+
+</div>
+    <!-- ===========================================
+         Dashboard Body
+    ============================================ -->
+
+    <div class="dashboard-grid">
+
+        <!-- Recent Requests -->
+
+        <div class="dashboard-panel">
+
+            <div class="panel-header">
+
+                Recent Requests
+
+            </div>
+
+            <div class="panel-body">
+
+                <table class="table">
+
+                    <thead>
+
+                        <tr>
+
+                            <th>Submission ID</th>
+
+                            <th>Order Number</th>
+
+                            <th>Status</th>
+
+                            <th>Date</th>
+
+                        </tr>
+
+                    </thead>
+
+                    <tbody id="recentSubmissionTable">
+
+                        <tr>
+
+                            <td colspan="4">
+
+                                No Records Found
+
+                            </td>
+
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+
+        <!-- Notifications -->
+
+        <div class="dashboard-panel">
+
+            <div class="panel-header">
+
+                Recent Notifications
+
+            </div>
+
+                <div
+                    id="dashboardNotifications"
+                    class="notification-list empty-notification">
+
+                    <div class="notification-empty-title">
+                        No notifications
+                    </div>
+
+                    <div class="notification-empty-subtitle">
+                        You're all caught up.
+                    </div>
+
+                </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ===========================================
+         Quick Actions
+    ============================================ -->
+
+    <div class="dashboard-panel">
+
+        <div class="panel-header">
+
+            Quick Actions
+
+        </div>
+
+        <div class="quick-actions">
+
+            <button
+                id="quickNewSubmission"
+                class="primary-btn">
+
+                New Submission
+
+            </button>
+
+            <button
+                id="quickMySubmissions"
+                class="secondary-btn">
+
+                My Submissions
+
+            </button>
+
+            <button
+                id="quickPending"
+                class="secondary-btn managerOnly hidden">
+
+                Pending Requests
+
+            </button>
+
+            <button
+                id="quickRepository"
+                class="secondary-btn adminOnly hidden">
+
+                Repository Search
+
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
