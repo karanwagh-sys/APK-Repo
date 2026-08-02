@@ -1,0 +1,5962 @@
+<script>
+
+/* ==========================================================
+   GLOBAL APPLICATION
+========================================================== */
+
+const APP = {
+
+    session : null,
+
+    user : null,
+
+    dashboard : {},
+
+    currentPage : "login",
+
+    loading : false,
+
+    notifications : [],
+
+    configuration : {},
+
+    pendingRequests : [],
+
+    pendingLocations : [],
+
+    bulkUpload : {
+        locations: [],
+        accessScope: "",
+        currentLocation: {}
+    },
+
+    repositoryResults : [],
+
+    repositoryResultMode : "submissions",
+
+    repositoryDateRange : {
+        start: "",
+        end: ""
+    },
+
+    csr : {
+        tickets: [],
+        locations: [],
+        agents: [],
+        reasons: [],
+        closingOutcomes: [],
+        selectedTicket: null
+    },
+
+    version : "1.0.0"
+
+};
+
+
+
+/* ==========================================================
+   DOM READY
+========================================================== */
+
+document.addEventListener("DOMContentLoaded", initializeApplication);
+
+
+
+/* ==========================================================
+   INITIALIZE
+========================================================== */
+
+function initializeApplication(){
+
+    APP.session = sessionStorage.getItem("rtoSession") || null;
+
+    applyAppBranding();
+    initializeEvents();
+    initializeCsrEvents();
+    initializePasswordToggle();
+    validateSession();
+    loadRememberedUser();
+    
+
+}
+
+function initializePasswordToggle() {
+
+    const password =
+        document.getElementById("loginPassword");
+
+    const button =
+        document.getElementById("togglePassword");
+
+    const icon =
+        button?.querySelector(".material-symbols-outlined");
+
+    if (!password || !button || !icon) return;
+
+    button.addEventListener("click", () => {
+
+        if (password.type === "password") {
+
+            password.type = "text";
+            icon.textContent = "visibility_off";
+
+        } else {
+
+            password.type = "password";
+            icon.textContent = "visibility";
+
+        }
+
+    });
+
+}
+/* ==========================================================
+   REMEMBER USERNAME
+========================================================== */
+
+function loadRememberedUser() {
+
+    const username =
+        localStorage.getItem("rememberUsername");
+
+    const remember =
+        localStorage.getItem("rememberMe");
+
+    if (remember === "true" && username) {
+
+        document.getElementById("loginUsername").value = username;
+
+        document.getElementById("rememberMe").checked = true;
+
+    }
+
+}
+
+function saveRememberedUser(username) {
+
+    const remember =
+        document.getElementById("rememberMe").checked;
+
+    if (remember) {
+
+        localStorage.setItem("rememberUsername", username);
+
+        localStorage.setItem("rememberMe", "true");
+
+    } else {
+
+        localStorage.removeItem("rememberUsername");
+
+        localStorage.removeItem("rememberMe");
+
+    }
+
+}
+/* ==========================================================
+   EVENTS
+========================================================== */
+
+function initializeEvents() {
+
+    /* Login */
+
+    document
+        .getElementById("btnLogin")
+        ?.addEventListener("click", login);
+
+    /* Login using Enter key */
+
+    ["loginUsername", "loginPassword"].forEach(id => {
+
+        document
+            .getElementById(id)
+            ?.addEventListener("keydown", function (e) {
+
+                if (e.key === "Enter") {
+
+                    e.preventDefault();
+
+                    login();
+
+                }
+
+            });
+
+    });
+
+    /* Logout */
+
+    document
+        .getElementById("btnLogout")
+        ?.addEventListener("click", logout);
+
+    document
+        .getElementById("toggleDarkMode")
+        ?.addEventListener("change", event => {
+            setDarkMode(event.target.checked);
+        });
+
+    document
+        .getElementById("ddlUiLanguage")
+        ?.addEventListener("change", event => {
+            setUiLanguage(event.target.value, true);
+        });
+
+}
+/* ==========================================================
+   GLOBAL LOADER
+========================================================== */
+
+function showLoader(title = "Loading...", message = "Please wait...") {
+
+    APP.loading = true;
+
+    const overlay = document.getElementById("loaderOverlay");
+
+    if (!overlay) return;
+
+    const titleElement = document.getElementById("loaderTitle");
+    const messageElement = document.getElementById("loaderMessage");
+
+    if (titleElement) {
+        titleElement.textContent = title;
+    }
+
+    if (messageElement) {
+        messageElement.textContent = message;
+    }
+
+    overlay.classList.remove("hidden");
+    overlay.classList.add("active");
+
+}
+
+function hideLoader() {
+
+    APP.loading = false;
+
+    const overlay = document.getElementById("loaderOverlay");
+
+    if (!overlay) return;
+
+    overlay.classList.remove("active");
+    overlay.classList.add("hidden");
+
+}
+
+/* ==========================================================
+   TOAST
+========================================================== */
+
+function showToast(message,type="info"){
+
+    const container =
+        document.getElementById("toastContainer");
+
+    if(!container) return;
+
+    const toast =
+        document.createElement("div");
+
+    toast.className =
+        "toast toast-" + type;
+
+    const content = document.createElement("span");
+    content.textContent = String(message || "");
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.setAttribute("aria-label", "Dismiss notification");
+    closeButton.textContent = "×";
+    closeButton.onclick = () => toast.remove();
+
+    toast.append(content, closeButton);
+
+    container.appendChild(toast);
+
+    setTimeout(()=>{
+
+        toast.remove();
+
+    },4000);
+
+}
+/* ==========================================================
+   PAGE NAVIGATION
+========================================================== */
+
+function showPage(page, transitionClass) {
+
+    document.querySelectorAll(".page").forEach(section => {
+        section.classList.remove("active", "page-enter", "page-pull-up");
+        section.classList.add("hidden");
+    });
+
+    document.querySelectorAll(".menu-item").forEach(button => {
+        button.classList.remove("active");
+    });
+
+    const pageMap = {
+        riderDashboard: "dashboardView",
+        riderSubmission: "submissionView",
+        mySubmission: "mySubmissionView",
+        pendingRequest: "pendingView",
+        reviewRequest: "reviewView",
+        adminDashboard: "adminView",
+        adminRepository: "repositoryView",
+        notifications: "notificationView",
+        settings: "settingsView",
+        csrDashboard: "csrDashboardView",
+        csrPending: "csrPendingView",
+        csrReview: "csrReviewView",
+        csrRepository: "csrRepositoryView"
+    };
+
+    const view = document.getElementById(pageMap[page]);
+
+    if (view) {
+        view.classList.remove("hidden");
+        void view.offsetWidth;
+        view.classList.add("active", transitionClass || "page-enter");
+    }
+
+    document
+        .querySelector(`[data-page="${page}"]`)
+        ?.classList.add("active");
+
+    document.querySelector(".content-wrapper")
+        ?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+    APP.currentPage = page;
+}
+
+/* ==========================================================
+   API
+========================================================== */
+
+function server(functionName, ...args) {
+
+    return new Promise((resolve, reject) => {
+
+        google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject)
+            .apiCall(functionName, APP.session || "", ...args);
+
+    });
+
+}
+
+/* ==========================================================
+   SESSION
+========================================================== */
+
+async function validateSession(){
+
+    try{
+
+        const response =
+            await server("validateSession", APP.session);
+
+        if(response.success){
+
+            APP.session = response.data.sessionId;
+
+            APP.user = response.data.user;
+
+            afterLogin();
+
+        }else{
+
+            sessionStorage.removeItem("rtoSession");
+            showLogin();
+
+        }
+
+    }catch(error){
+
+        sessionStorage.removeItem("rtoSession");
+        showLogin();
+
+    }
+
+}
+
+/* ==========================================================
+   LOGIN SCREEN
+========================================================== */
+
+function showLogin(){
+
+    document
+        .getElementById("loginPage")
+        ?.classList.remove("hidden");
+
+    document
+
+        .getElementById("loginContainer")
+
+        ?.classList.remove("hidden");
+
+    document
+
+        .getElementById("appContainer")
+
+        ?.classList.add("hidden");
+
+}
+
+
+
+/* ==========================================================
+   AFTER LOGIN
+========================================================== */
+
+function afterLogin() {
+
+    document.getElementById("loginPage")?.classList.add("hidden");
+    document.getElementById("appContainer")?.classList.remove("hidden");
+
+    loadLoggedInUser();
+
+    const role = normaliseRole(APP.user.role);
+
+    if (isCsrUser()) {
+
+        navigate(isCsrAdmin() ? "csrDashboard" : "csrDashboard");
+        return;
+
+    }
+
+    if (role === "RIDER") {
+
+        navigate("riderDashboard");
+
+    } else if (role === "MANAGER" || role === "HUB_MANAGER") {
+
+        navigate("pendingRequest");
+
+    } else if (role === "ADMIN" || role === "SUPER_ADMIN") {
+
+        navigate("adminDashboard");
+
+    } else {
+
+        navigate("riderDashboard");
+
+    }
+
+}
+/* ==========================================================
+   USER
+========================================================== */
+
+function avatarProfileForRole(role){
+
+    switch(normaliseRole(role)){
+
+        case "RIDER":
+            return { className: "avatar-rider", icon: "two_wheeler", label: "Rider" };
+
+        case "MANAGER":
+        case "HUB_MANAGER":
+            return { className: "avatar-manager", icon: "business_center", label: "Manager" };
+
+        case "ADMIN":
+            return { className: "avatar-admin", icon: "admin_panel_settings", label: "Administrator" };
+
+        case "SUPER_ADMIN":
+            return { className: "avatar-super-admin", icon: "workspace_premium", label: "Super administrator" };
+
+        case "CALLING_AGENT":
+            return { className: "avatar-calling-agent", icon: "headset_mic", label: "Calling agent" };
+
+        default:
+            return { className: "avatar-default", icon: "account_circle", label: "User" };
+
+    }
+
+}
+
+function renderRoleAvatar(avatar, role, userName){
+
+    const profile = avatarProfileForRole(role);
+
+    avatar.className = "user-avatar role-avatar " + profile.className;
+    avatar.replaceChildren();
+    avatar.setAttribute("aria-label", (userName || "User") + ": " + profile.label);
+    avatar.title = profile.label;
+
+    const icon = document.createElement("span");
+    icon.className = "material-symbols-outlined avatar-icon";
+    icon.textContent = profile.icon;
+    icon.setAttribute("aria-hidden", "true");
+
+    avatar.appendChild(icon);
+
+}
+
+function renderSidebarUserAvatar(userName, role, profilePhoto){
+
+    const avatar = document.getElementById("userAvatar");
+
+    if (!avatar) return;
+
+    const photoUrl = String(profilePhoto || "").trim();
+
+    if (!/^https:\/\//i.test(photoUrl)) {
+        renderRoleAvatar(avatar, role, userName);
+        return;
+    }
+
+    avatar.className = "user-avatar has-profile-photo";
+    avatar.replaceChildren();
+    avatar.setAttribute("aria-label", (userName || "User") + " profile photo");
+    avatar.title = userName || "User";
+
+    const image = document.createElement("img");
+    image.className = "avatar-profile-photo";
+    image.src = photoUrl;
+    image.alt = (userName || "User") + " profile photo";
+    image.addEventListener("error", () => {
+        if (avatar.contains(image)) {
+            renderRoleAvatar(avatar, role, userName);
+        }
+    }, { once: true });
+
+    avatar.appendChild(image);
+
+}
+
+function loadLoggedInUser(){
+
+    if (!APP.user) return;
+
+    const userName =
+        APP.user.name ||
+        APP.user.riderName ||
+        APP.user.username ||
+        "User";
+
+    const userRole =
+        APP.user.role || "";
+
+    /* Sidebar */
+
+    const nameElement =
+        document.getElementById("loggedUserName");
+
+    const roleElement =
+        document.getElementById("loggedUserRole");
+
+    if(nameElement){
+
+        nameElement.textContent = userName;
+
+    }
+
+    if(roleElement){
+
+        roleElement.textContent = userRole;
+
+    }
+
+    renderSidebarUserAvatar(
+        userName,
+        userRole,
+        APP.user.profilePhoto
+    );
+
+    loadUserUiLanguagePreference();
+
+    /* Dashboard */
+
+    const dashboardUser =
+        document.getElementById("dashboardUserName");
+
+    if(dashboardUser){
+
+        dashboardUser.textContent = userName;
+
+    }
+
+    configureRoleMenus();
+
+}
+/* ==========================================================
+   LOGIN
+========================================================== */
+
+async function login() {
+
+    const username =
+        document.getElementById("loginUsername").value.trim();
+
+    const password =
+        document.getElementById("loginPassword").value;
+
+    if (!username) {
+
+        showToast(
+            "Username is required",
+            "warning"
+        );
+
+        return;
+
+    }
+
+    if (!password) {
+
+        showToast(
+            "Password is required",
+            "warning"
+        );
+
+        return;
+
+    }
+
+    try {
+
+        /* Show Login Loader */
+
+        showLoader(
+            "Signing In...",
+            "Authenticating your account..."
+        );
+
+        const response =
+            await server(
+                "login",
+                username,
+                password
+            );
+
+        if (response.success) {
+
+            APP.session = response.data.sessionId;
+            APP.user = response.data;
+            sessionStorage.setItem("rtoSession", APP.session);
+
+            saveRememberedUser(username);
+
+            /* Update Loader */
+
+            showLoader(
+                `Welcome, ${APP.user.name || APP.user.username || username} 👋`,
+                "Preparing your workspace..."
+            );
+
+            setTimeout(() => {
+
+    showToast(
+        response.message,
+        "success"
+    );
+
+    afterLogin();
+
+    hideLoader();
+
+}, 1200);
+
+        } else {
+
+            hideLoader();
+
+            showToast(
+                response.message,
+                "error"
+            );
+
+        }
+
+    } catch (error) {
+
+        hideLoader();
+
+        showToast(
+            error.message || "Unable to login.",
+            "error"
+        );
+
+    }
+
+}
+/* ==========================================================
+   LOGOUT
+========================================================== */
+
+async function logout(){
+
+    if (!(await confirmAction({
+        title: "Log out?",
+        message: "Your current session will be securely closed.",
+        confirmText: "Yes, log out",
+        cancelText: "Stay signed in"
+    }))) {
+        return;
+    }
+
+    showLoader(
+        "Thanks, come again!",
+        "We are securely signing you out..."
+    );
+
+    try{
+
+        if (APP.user?.username) {
+            await server("logout", APP.user.username);
+        }
+
+    }catch(e){}
+
+    APP.session = null;
+
+    APP.user = null;
+
+    sessionStorage.removeItem("rtoSession");
+
+    hideLoader();
+
+    showLogin();
+
+}
+
+
+
+/* ==========================================================
+   END PART 1
+========================================================== */
+
+</script>
+<script>
+
+/* ==========================================================
+   SIDEBAR NAVIGATION
+========================================================== */
+
+function initializeNavigation(){
+
+    document.getElementById("btnMobileMenuToggle")?.addEventListener("click", event => {
+        const isOpen = document.getElementById("sidebar")?.classList.toggle("open") || false;
+        event.currentTarget.setAttribute("aria-expanded", String(isOpen));
+    });
+
+    document.querySelectorAll("[data-page]").forEach(button=>{
+
+        button.addEventListener("click",function(){
+
+            const page=this.dataset.page;
+
+            navigate(page);
+
+            if (window.matchMedia("(max-width: 768px)").matches) {
+                document.getElementById("sidebar")?.classList.remove("open");
+                document.getElementById("btnMobileMenuToggle")?.setAttribute("aria-expanded", "false");
+            }
+
+        });
+
+    });
+
+}
+
+
+
+function navigate(page, transitionClass){
+
+    showPage(page, transitionClass);
+
+    switch(page){
+
+        case "riderDashboard":
+
+            loadRiderDashboard();
+
+            break;
+
+        case "riderSubmission":
+
+            initializeSubmission();
+
+            break;
+
+        case "mySubmission":
+
+            loadMySubmission();
+
+            break;
+
+        case "pendingRequest":
+
+            loadPendingRequest();
+
+            break;
+
+        case "reviewRequest":
+
+            resetReviewScreen();
+
+            break;
+
+        case "adminDashboard":
+
+            loadAdminDashboard();
+
+            break;
+
+        case "adminRepository":
+
+            initializeRepository();
+
+            break;
+
+        case "notifications":
+
+            loadNotifications();
+
+            break;
+
+        case "settings":
+
+            loadSettings();
+
+            break;
+
+        case "csrDashboard":
+
+            loadCsrDashboard();
+
+            break;
+
+        case "csrPending":
+
+            initializeCsrQueue();
+
+            break;
+
+        case "csrReview":
+
+            renderCsrReview();
+
+            break;
+
+        case "csrRepository":
+
+            loadCsrRepository();
+
+            break;
+
+    }
+
+}
+
+function initializeRepository(){
+
+    $("#txtRepositorySearch")?.focus();
+    updateRepositoryExportButtons();
+
+}
+/* ==========================================================
+   ROLE BASED MENUS
+========================================================== */
+
+function setMenuVisibility(selector, visible){
+
+    document.querySelectorAll(selector).forEach(element => {
+
+        element.hidden = !visible;
+        element.classList.toggle("hidden", !visible);
+
+    });
+
+}
+
+function configureRoleMenus(){
+
+    setMenuVisibility(
+        ".managerOnly,.adminOnly,.superAdminOnly,.csrOnly,.csrAdminOnly,.csrAgentOnly,[data-rto-roles]",
+        false
+    );
+
+    if (isCsrUser()) {
+
+        setMenuVisibility(".rtoOnly", false);
+        setMenuVisibility(".csrOnly", true);
+        setMenuVisibility(isCsrAdmin() ? ".csrAdminOnly" : ".csrAgentOnly", true);
+
+        return;
+
+    }
+
+    setMenuVisibility(".rtoOnly", true);
+
+    const role = normaliseRole(APP.user?.role);
+
+    /*
+       Quick-action buttons use the managerOnly/adminOnly markers but do not
+       carry data-rto-roles.  Show them only after the baseline has hidden all
+       privileged controls; the navigation buttons below are then governed by
+       their stricter data-rto-roles allow-list.
+    */
+    const manager = ["HUB_MANAGER", "MANAGER", "ADMIN", "SUPER_ADMIN"].includes(role);
+    const admin = ["ADMIN", "SUPER_ADMIN"].includes(role);
+
+    setMenuVisibility(".managerOnly", manager);
+    setMenuVisibility(".adminOnly", admin);
+    setMenuVisibility(".superAdminOnly", role === "SUPER_ADMIN");
+
+    document.querySelectorAll("[data-rto-roles]").forEach(element => {
+
+        const allowedRoles = String(element.dataset.rtoRoles || "")
+            .split(",")
+            .map(normaliseRole);
+        const visible = allowedRoles.includes(role);
+
+        element.hidden = !visible;
+        element.classList.toggle("hidden", !visible);
+
+    });
+
+}
+
+function normaliseRole(role) {
+
+    return String(role || "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "_");
+
+}
+
+function isAdminUser() {
+
+    const role = normaliseRole(APP.user?.role);
+
+    return role === "ADMIN" || role === "SUPER_ADMIN";
+
+}
+/* ==========================================================
+   RIDER DASHBOARD
+========================================================== */
+
+async function loadRiderDashboard(){
+
+    try{
+
+        const response =
+
+    await server(
+
+        "dashboardCounts",
+
+        APP.user?.username
+
+    );
+
+        if(!response.success){
+
+            showToast(
+
+                response.message,
+
+                "error"
+
+            );
+
+            return;
+
+        }
+
+        APP.dashboard=response.data;
+
+        populateDashboardCounts();
+
+        loadRecentSubmissions();
+
+        loadNotificationCount();
+
+    }
+
+    catch(error){
+
+        showToast(
+
+            error.message,
+
+            "error"
+
+        );
+
+    }
+
+}
+
+/* ==========================================================
+   DASHBOARD COUNTS
+========================================================== */
+
+function populateDashboardCounts(){
+
+    const counts = APP.dashboard || {};
+
+    $("#dashboardTotal").textContent =
+        counts.total || 0;
+
+    $("#dashboardPending").textContent =
+        counts.pending || 0;
+
+    $("#dashboardUnderReview").textContent =
+        counts.underReview || 0;
+
+    $("#dashboardApproved").textContent =
+        counts.approved || 0;
+
+    $("#dashboardRejected").textContent =
+        counts.rejected || 0;
+
+}
+
+/* ==========================================================
+   RECENT SUBMISSIONS
+========================================================== */
+
+async function loadRecentSubmissions(){
+
+    try{
+
+        const response=
+
+            await server(
+
+                "mySubmissions",
+
+                APP.user?.username
+
+            );
+
+        if(!response.success){
+
+            return;
+
+        }
+
+        renderRecentSubmissions(
+
+            response.data
+
+        );
+
+    }
+
+    catch(error){
+
+        console.error(error);
+
+    }
+
+}
+
+
+
+function renderRecentSubmissions(data){
+
+    const tbody=
+
+        $("#recentSubmissionTable");
+
+    tbody.innerHTML="";
+
+    if(!data.length){
+
+        tbody.innerHTML=
+
+        `<tr>
+
+            <td colspan="4">
+
+                No Records Found
+
+            </td>
+
+        </tr>`;
+
+        return;
+
+    }
+
+    data.slice(0,5).forEach(item=>{
+
+        tbody.insertAdjacentHTML(
+
+            "beforeend",
+
+            `
+
+            <tr>
+
+                <td>${escapeHtml(item.submissionId)}</td>
+
+                <td>${escapeHtml(item.orderNumber)}</td>
+
+                <td>
+
+                    ${statusBadge(item.status)}
+
+                </td>
+
+                <td>${escapeHtml(item.timestamp)}</td>
+
+            </tr>
+
+            `
+
+        );
+
+    });
+
+}
+
+
+
+/* ==========================================================
+   NOTIFICATION COUNT
+========================================================== */
+
+async function loadNotificationCount(){
+
+    try{
+
+        const response=
+
+            await server(
+
+                "unreadNotificationCount",
+
+                APP.user?.username
+
+            );
+
+        if(!response.success){
+
+            return;
+
+        }
+
+        const badge=
+
+            $("#notificationBadge");
+
+        if(!badge){
+
+            return;
+
+        }
+
+        badge.textContent=
+
+            response.data;
+
+        badge.style.display=
+
+            response.data>0
+
+            ? "inline-flex"
+
+            : "none";
+
+    }
+
+    catch(error){
+
+        console.error(error);
+
+    }
+
+}
+
+
+
+/* ==========================================================
+   REFRESH
+========================================================== */
+
+function refreshDashboard(){
+
+    loadRiderDashboard();
+
+}
+
+
+
+/* ==========================================================
+   SESSION WATCH
+========================================================== */
+
+setInterval(async()=>{
+
+    if(!APP.session){
+
+        return;
+
+    }
+
+    try{
+
+        const response=
+
+            await server(
+
+                "validateSession",
+
+                APP.session
+
+            );
+
+        if(!response.success){
+
+            showToast(
+
+                "Session Expired",
+
+                "warning"
+
+            );
+
+            logout();
+
+        }
+
+    }
+
+    catch(error){
+
+        console.error(error);
+
+    }
+
+},300000);
+
+
+
+/* ==========================================================
+   COMMON HELPERS
+========================================================== */
+
+function $(id){
+
+    if (!id) return null;
+
+    return id.startsWith("#")
+        ? document.querySelector(id)
+        : document.getElementById(id);
+
+}
+
+function escapeHtml(value){
+
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+}
+
+function safeExternalUrl(value){
+
+    try {
+        const url = new URL(String(value || ""));
+        return ["https:", "http:"].includes(url.protocol) ? url.href : "";
+    } catch (error) {
+        return "";
+    }
+
+}
+
+
+
+/*============================================================
+    STATUS BADGE
+============================================================*/
+
+function statusBadge(status) {
+
+    status = String(status || "").trim();
+
+    let css = "badge-secondary";
+    let icon = "";
+
+    switch (status.toUpperCase()) {
+
+        case "SUBMITTED":
+            css = "badge-primary";
+            icon = "🟡 ";
+            break;
+
+        case "UNDER REVIEW":
+            css = "badge-warning";
+            icon = "🔵 ";
+            break;
+
+        case "APPROVED":
+            css = "badge-success";
+            icon = "🟢 ";
+            break;
+
+        case "REJECTED":
+            css = "badge-danger";
+            icon = "🔴 ";
+            break;
+
+        case "OPEN":
+        case "CALLING PENDING":
+            css = "badge-primary";
+            icon = "🔵 ";
+            break;
+
+        case "CLOSED":
+            css = "badge-success";
+            icon = "🟢 ";
+            break;
+
+    }
+
+    return `
+        <span class="status-badge ${css}" aria-label="Status: ${escapeHtml(status)}">
+            <span class="status-indicator" aria-hidden="true">${icon}</span>
+            <span class="status-label">${escapeHtml(status)}</span>
+        </span>
+    `;
+
+}
+
+/* ==========================================================
+   INITIALIZATION
+========================================================== */
+
+document.addEventListener(
+
+    "DOMContentLoaded",
+
+    ()=>{
+
+        initializeNavigation();
+
+    }
+
+);
+
+/* ==========================================================
+   END PART 2
+========================================================== */
+
+</script>
+<script>
+
+/* ==========================================================
+   RIDER SUBMISSION
+========================================================== */
+
+async function initializeSubmission(){
+
+    clearSubmissionForm();
+
+    await loadReasons();
+
+    if (isAdminUser()) {
+        await initializeBulkUpload();
+    }
+
+    const orderBox = $("#txtOrderNumber");
+
+    if(orderBox){
+
+        /* ---------- Typing ---------- */
+
+        orderBox.oninput = function(){
+
+            this.value = this.value
+                .replace(/[^0-9]/g,"")
+                .substring(0,11);
+
+        };
+
+        /* ---------- Paste ---------- */
+
+        orderBox.onpaste = function(e){
+
+            e.preventDefault();
+
+            const text = (e.clipboardData || window.clipboardData)
+                .getData("text");
+
+            this.value = text
+                .replace(/[^0-9]/g,"")
+                .substring(0,11);
+
+        };
+
+    }
+
+}
+
+/* ==========================================================
+   LOAD REASONS
+========================================================== */
+
+async function loadReasons(){
+
+    const ddl = $("#ddlReason");
+
+    if (!ddl) {
+
+        return [];
+
+    }
+
+    const previousValue = ddl.value;
+
+    /*
+       Show a real loading state.  On a phone this prevents a user from
+       tapping an empty native select before the Apps Script request ends.
+    */
+    ddl.disabled = true;
+    ddl.setAttribute("aria-busy", "true");
+    ddl.innerHTML = `<option value="">Loading reasons…</option>`;
+    setReasonSearchLoading();
+
+    try{
+
+        const response = await server("getReasons");
+
+        if(!response || !response.success){
+
+            throw new Error(response?.message || "Unable to load reasons.");
+
+        }
+
+        APP.reasons = Array.isArray(response.data)
+            ? response.data.filter(item => item && item.reason)
+            : [];
+
+        ddl.innerHTML = `
+            <option value="">
+                Select Reason
+            </option>
+        `;
+
+        APP.reasons.forEach(item => {
+
+            const option = document.createElement("option");
+            option.value = item.reason;
+            option.textContent = item.reason;
+            ddl.appendChild(option);
+
+        });
+
+        if (previousValue && APP.reasons.some(item => item.reason === previousValue)) {
+
+            ddl.value = previousValue;
+
+        }
+
+        syncReasonSearchValue(ddl.value);
+        renderReasonSearchResults(APP.reasons, "");
+
+        if (!APP.reasons.length) {
+
+            ddl.innerHTML = `<option value="">No reasons are available for this account</option>`;
+            renderReasonSearchResults([], "", "No reasons are available for this account.");
+            showToast("No active reasons are assigned to your role.", "error");
+
+        }
+
+        return APP.reasons;
+
+    }
+
+    catch(error){
+
+        APP.reasons = [];
+        ddl.innerHTML = `<option value="">Unable to load reasons — reopen this page</option>`;
+        renderReasonSearchResults([], "", "Unable to load reasons. Reopen this page.");
+        showToast(error?.message || "Unable to load reasons.","error");
+
+        return [];
+
+    }
+
+    finally {
+
+        ddl.disabled = false;
+        ddl.removeAttribute("aria-busy");
+
+    }
+
+}
+
+/* ==========================================================
+   SEARCHABLE REASON PICKER
+   Uses normal input and button elements instead of a native select popup.
+   The hidden select remains the source of truth for existing submission logic.
+========================================================== */
+
+function getReasonSearchElements(){
+
+    return {
+        ddl: $("#ddlReason"),
+        input: $("#txtReasonSearch"),
+        list: $("#reasonSearchList")
+    };
+
+}
+
+function closeReasonSearchList(){
+
+    getReasonSearchElements().list?.classList.add("hidden");
+
+}
+
+function syncReasonSearchValue(value){
+
+    const picker = getReasonSearchElements();
+
+    if (!picker.input) return;
+
+    picker.input.value = value || "";
+    picker.input.placeholder = "Type to search a reason";
+
+}
+
+function setReasonSearchLoading(){
+
+    const picker = getReasonSearchElements();
+
+    if (!picker.input || !picker.list) return;
+
+    picker.input.disabled = true;
+    picker.input.value = "";
+    picker.input.placeholder = "Loading reasons...";
+    picker.list.replaceChildren();
+
+    const message = document.createElement("p");
+    message.className = "reason-search-empty";
+    message.textContent = "Loading reasons...";
+    picker.list.appendChild(message);
+
+    closeReasonSearchList();
+
+}
+
+function renderReasonSearchResults(reasons, query, emptyMessage){
+
+    const picker = getReasonSearchElements();
+
+    if (!picker.ddl || !picker.input || !picker.list) return;
+
+    const normalizedQuery = String(query || "").trim().toLowerCase();
+    const items = (Array.isArray(reasons) ? reasons : [])
+        .filter(item => item && item.reason)
+        .filter(item => String(item.reason).toLowerCase().includes(normalizedQuery));
+
+    picker.list.replaceChildren();
+    picker.input.disabled = !Array.isArray(reasons) || !reasons.length;
+
+    if (!items.length) {
+
+        const message = document.createElement("p");
+        message.className = "reason-search-empty";
+        message.textContent = emptyMessage || (normalizedQuery
+            ? "No matching reason found."
+            : "No reasons are available for this account.");
+        picker.list.appendChild(message);
+        return;
+
+    }
+
+    items.forEach(item => {
+
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "reason-search-option";
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", String(picker.ddl.value === item.reason));
+        option.textContent = item.reason;
+
+        option.addEventListener("click", function(){
+
+            picker.ddl.value = item.reason;
+            picker.ddl.dispatchEvent(new Event("change", { bubbles:true }));
+            syncReasonSearchValue(item.reason);
+            closeReasonSearchList();
+
+        });
+
+        picker.list.appendChild(option);
+
+    });
+
+}
+
+function initializeReasonSearch(){
+
+    const picker = getReasonSearchElements();
+
+    if (!picker.input || !picker.list || picker.input.dataset.initialized === "true") return;
+
+    picker.input.dataset.initialized = "true";
+
+    picker.input.addEventListener("focus", function(){
+
+        const reasons = Array.isArray(APP.reasons) ? APP.reasons : [];
+
+        if (!reasons.length) {
+            loadReasons();
+            return;
+        }
+
+        renderReasonSearchResults(reasons, picker.input.value);
+        picker.list.classList.remove("hidden");
+
+    });
+
+    picker.input.addEventListener("input", function(){
+
+        renderReasonSearchResults(APP.reasons, picker.input.value);
+        picker.list.classList.remove("hidden");
+
+    });
+
+    picker.input.addEventListener("keydown", function(event){
+
+        if (event.key === "Escape") {
+            closeReasonSearchList();
+        }
+
+    });
+
+    document.addEventListener("click", function(event){
+
+        const group = picker.input.closest(".reason-search-group");
+
+        if (group && !group.contains(event.target)) {
+            closeReasonSearchList();
+        }
+
+    });
+
+    setReasonSearchLoading();
+
+}
+
+initializeReasonSearch();
+
+/* ==========================================================
+   ORDER NUMBER VALIDATION
+========================================================== */
+
+function validateOrderNumber(value){
+
+    return /^[0-9]{1,11}$/.test(value);
+
+}
+
+
+
+/* ==========================================================
+   ATTACHMENT PREVIEW AND CLIENT-SIDE FILE VALIDATION
+========================================================== */
+
+const FILE_PREVIEW_TYPES = {
+    image: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif"],
+    video: ["mp4", "mov", "avi", "mkv", "webm", "3gp", "3gpp"],
+    audio: ["mp3", "wav", "aac", "m4a", "ogg", "amr", "3gp", "3gpp"],
+    pdf: ["pdf"]
+};
+
+function fileExtension(file){
+
+    const name = String(file && file.name || "");
+    const match = name.toLowerCase().match(/\.([a-z0-9]+)$/);
+    return match ? match[1] : "";
+
+}
+
+function fileKind(file){
+
+    const type = String(file && file.type || "").toLowerCase();
+    const extension = fileExtension(file);
+
+    if (type.indexOf("image/") === 0 || FILE_PREVIEW_TYPES.image.indexOf(extension) !== -1)
+        return "image";
+
+    if (type.indexOf("video/") === 0 || FILE_PREVIEW_TYPES.video.indexOf(extension) !== -1)
+        return "video";
+
+    if (type.indexOf("audio/") === 0 || FILE_PREVIEW_TYPES.audio.indexOf(extension) !== -1)
+        return "audio";
+
+    if (type === "application/pdf" || FILE_PREVIEW_TYPES.pdf.indexOf(extension) !== -1)
+        return "pdf";
+
+    return "";
+
+}
+
+function canonicalFileMimeType(file){
+
+    const type = String(file && file.type || "").toLowerCase();
+    const extension = fileExtension(file);
+
+    if (type && type !== "application/octet-stream") return type;
+
+    const mimeByExtension = {
+        jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+        webp: "image/webp", gif: "image/gif", bmp: "image/bmp",
+        heic: "image/heic", heif: "image/heif", pdf: "application/pdf",
+        mp3: "audio/mpeg", wav: "audio/wav", aac: "audio/aac",
+        m4a: "audio/mp4", ogg: "audio/ogg", amr: "audio/amr",
+        mp4: "video/mp4", mov: "video/quicktime", avi: "video/x-msvideo",
+        mkv: "video/x-matroska", webm: "video/webm", "3gp": "video/3gpp",
+        "3gpp": "video/3gpp"
+    };
+
+    return mimeByExtension[extension] || type || "";
+
+}
+
+function formatFileSize(bytes){
+
+    const size = Number(bytes) || 0;
+    if (size < 1024) return size + " B";
+    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + " KB";
+    return (size / (1024 * 1024)).toFixed(1) + " MB";
+
+}
+
+function resetFilePreview(previewId){
+
+    const preview = $(previewId);
+    if (!preview) return;
+
+    if (preview.dataset.objectUrl) {
+        URL.revokeObjectURL(preview.dataset.objectUrl);
+        delete preview.dataset.objectUrl;
+    }
+
+    delete preview.dataset.invalid;
+    preview.className = "file-preview preview-empty";
+    preview.replaceChildren();
+
+    const placeholder = document.createElement("span");
+    placeholder.className = "file-preview-placeholder";
+    placeholder.textContent = "No file selected";
+    preview.appendChild(placeholder);
+
+}
+
+function setUnsupportedFilePreview(input, previewId, file){
+
+    const preview = $(previewId);
+    if (!preview) return;
+
+    resetFilePreview(previewId);
+    preview.dataset.invalid = "true";
+    preview.className = "file-preview preview-error";
+    preview.replaceChildren();
+
+    const title = document.createElement("strong");
+    title.textContent = "Unsupported file";
+    const detail = document.createElement("span");
+    detail.textContent = (file && file.name ? file.name + ". " : "") +
+        "Choose an Image, Video, Audio, or PDF file.";
+
+    preview.append(title, detail);
+    input.setCustomValidity("Unsupported file type. Choose an Image, Video, Audio, or PDF file.");
+
+}
+
+function previewImage(input, previewId){
+
+    const preview = $(previewId);
+    const file = input && input.files && input.files[0];
+
+    if (!preview) return true;
+
+    resetFilePreview(previewId);
+
+    if (!file) {
+        if (input) input.setCustomValidity("");
+        return true;
+    }
+
+    const kind = fileKind(file);
+    if (!kind) {
+        setUnsupportedFilePreview(input, previewId, file);
+        return false;
+    }
+
+    input.setCustomValidity("");
+    preview.className = "file-preview preview-ready";
+
+    const fileMeta = document.createElement("div");
+    fileMeta.className = "file-preview-meta";
+
+    const fileName = document.createElement("strong");
+    fileName.textContent = file.name || "Selected attachment";
+    const fileSize = document.createElement("span");
+    fileSize.textContent = formatFileSize(file.size);
+    fileMeta.append(fileName, fileSize);
+
+    const mediaWrap = document.createElement("div");
+    mediaWrap.className = "file-preview-media";
+    const objectUrl = URL.createObjectURL(file);
+    preview.dataset.objectUrl = objectUrl;
+
+    if (kind === "image") {
+        const image = document.createElement("img");
+        image.alt = "Preview of " + (file.name || "selected image");
+        image.src = objectUrl;
+        image.className = "attachment-image-preview";
+        mediaWrap.appendChild(image);
+    }
+
+    if (kind === "video") {
+        const video = document.createElement("video");
+        video.src = objectUrl;
+        video.controls = true;
+        video.preload = "metadata";
+        video.playsInline = true;
+        video.className = "attachment-video-preview";
+        mediaWrap.appendChild(video);
+    }
+
+    if (kind === "audio") {
+        const audio = document.createElement("audio");
+        audio.src = objectUrl;
+        audio.controls = true;
+        audio.preload = "metadata";
+        audio.className = "attachment-audio-preview";
+        mediaWrap.appendChild(audio);
+    }
+
+    if (kind === "pdf") {
+        const frame = document.createElement("iframe");
+        frame.src = objectUrl;
+        frame.title = "Preview of " + (file.name || "selected PDF");
+        frame.className = "attachment-pdf-preview";
+        mediaWrap.appendChild(frame);
+
+        const openButton = document.createElement("button");
+        openButton.type = "button";
+        openButton.className = "preview-open-file";
+        openButton.textContent = "Open PDF";
+        openButton.addEventListener("click", function(){
+            window.open(objectUrl, "_blank", "noopener");
+        });
+        mediaWrap.appendChild(openButton);
+    }
+
+    preview.replaceChildren(fileMeta, mediaWrap);
+    return true;
+
+}
+
+function selectedFileIsValid(input, previewId, fieldName){
+
+    const file = input && input.files && input.files[0];
+    if (!file) return true;
+
+    if (fileKind(file)) return true;
+
+    setUnsupportedFilePreview(input, previewId, file);
+    showToast(fieldName + " must be an Image, Video, Audio, or PDF file.", "warning");
+    return false;
+
+}
+
+
+
+/* ==========================================================
+   IMAGE COMPRESSION
+========================================================== */
+
+function compressImage(file,maxWidth=1280,quality=.75){
+
+    return new Promise((resolve,reject)=>{
+
+        const reader=new FileReader();
+
+        reader.onload=function(event){
+
+            const image=new Image();
+
+            image.onload=function(){
+
+                const canvas=document.createElement("canvas");
+
+                let width=image.width;
+
+                let height=image.height;
+
+                if(width>maxWidth){
+
+                    height*=maxWidth/width;
+
+                    width=maxWidth;
+
+                }
+
+                canvas.width=width;
+
+                canvas.height=height;
+
+                const context=canvas.getContext("2d");
+
+                context.drawImage(
+
+                    image,
+
+                    0,
+
+                    0,
+
+                    width,
+
+                    height
+
+                );
+
+                canvas.toBlob(
+
+                    blob=>{
+
+                        if (blob) resolve(blob);
+                        else reject(new Error("Unable to compress the selected image."));
+
+                    },
+
+                    "image/jpeg",
+
+                    quality
+
+                );
+
+            };
+
+            image.src=event.target.result;
+
+        };
+
+        reader.onerror=reject;
+
+        reader.readAsDataURL(file);
+
+    });
+
+}
+
+
+
+/* ==========================================================
+   UPLOAD FILE
+========================================================== */
+
+function readAsDataUrl(file, fallbackMimeType){
+
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = event => {
+
+            let dataUrl = String(event.target.result || "");
+
+            // Some Android file pickers provide an empty MIME type. FileReader
+            // then emits application/octet-stream, which Drive-side validation
+            // correctly rejects. Use the verified filename fallback instead.
+            if (fallbackMimeType && /^data:application\/octet-stream;base64,/i.test(dataUrl)) {
+                dataUrl = dataUrl.replace(
+                    /^data:application\/octet-stream;base64,/i,
+                    "data:" + fallbackMimeType + ";base64,"
+                );
+            }
+
+            resolve(dataUrl);
+
+        };
+        reader.onerror = () => reject(new Error("Unable to read the selected file."));
+        reader.readAsDataURL(file);
+    });
+
+}
+
+async function uploadFile(file, folderName){
+
+    const kind = fileKind(file);
+    const sourceMimeType = canonicalFileMimeType(file);
+
+    if (!kind || !sourceMimeType) {
+        throw new Error("Unsupported file type. Choose an Image, Video, Audio, or PDF file.");
+    }
+
+    let upload = file;
+    let uploadName = file.name;
+
+    if (file.type.startsWith("image/") && !/image\/(heic|heif)/i.test(file.type)) {
+        try {
+            upload = await compressImage(file);
+            uploadName = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+        } catch (error) {
+            upload = file;
+        }
+    }
+
+    const uploadMimeType = canonicalFileMimeType(upload) || sourceMimeType;
+
+    // Base64 requests are larger than the local file. Keep them inside the
+    // reliable Apps Script request size while the server still enforces its
+    // configured upload limit.
+    if (upload.size > 25 * 1024 * 1024) {
+        throw new Error("This file is too large to upload. Choose a file smaller than 25 MB.");
+    }
+
+    let response;
+
+    try {
+        response = await server(
+            "uploadFile",
+            await readAsDataUrl(upload, uploadMimeType),
+            uploadName,
+            folderName
+        );
+    } catch (error) {
+        throw new Error(
+            (error && error.message) ||
+            "The file could not be uploaded. Check your connection and try again."
+        );
+    }
+
+    if (!response || !response.success)
+        throw new Error(
+            (response && response.message) ||
+            "The file could not be uploaded. Check your connection and try again."
+        );
+
+    return response.data.fileUrl;
+
+}
+
+/* ==========================================================
+   SUBMIT REQUEST
+========================================================== */
+
+async function submitRequest() {
+
+    const orderNumber =
+        $("#txtOrderNumber")
+        .value
+        .trim()
+        .toUpperCase();
+
+    const reason =
+        $("#ddlReason")
+        .value;
+
+    const mandatory =
+        $("#mandatoryProof")
+        .files[0];
+
+    const optional =
+        $("#optionalProof")
+        .files[0];
+
+    if (!orderNumber) {
+
+        showToast(
+            "Order Number is required",
+            "warning"
+        );
+
+        return;
+
+    }
+
+    if (!validateOrderNumber(orderNumber)) {
+
+        showToast(
+            "Order Number must contain 1 to 11 digits.",
+            "warning"
+        );
+
+        return;
+
+    }
+
+    if (!reason) {
+
+        showToast(
+            "Please select a reason.",
+            "warning"
+        );
+
+        return;
+
+    }
+
+    if (!selectedFileIsValid(mandatory, "mandatoryPreview", "Mandatory Proof") ||
+        !selectedFileIsValid(optional, "optionalPreview", "Optional Proof")) {
+
+        return;
+
+    }
+
+            const config =
+                APP.reasons.find(r => r.reason === reason);
+
+            if (config?.mandatoryProof && !isAdminUser() && !mandatory) {
+
+                showToast(
+                    "Mandatory proof is required.",
+                    "warning"
+                );
+
+                return;
+
+            }
+
+    try {
+
+        showLoader(
+            "Wait, your files are getting uploaded...",
+            "Please keep this page open while we securely upload your attachments."
+        );
+
+                /* ---------- Upload Mandatory Proof ---------- */
+
+                let mandatoryUpload = "";
+
+                if (mandatory) {
+
+                    mandatoryUpload =
+                        await uploadFile(
+                            mandatory,
+                            "Mandatory Proofs"
+                        );
+
+                }
+
+                /* ---------- Upload Optional Proof ---------- */
+
+                let optionalUpload = "";
+
+                if (optional) {
+
+                    optionalUpload =
+                        await uploadFile(
+                            optional,
+                            "Optional Proofs"
+                        );
+
+                }
+
+        /* ---------- Create Submission ---------- */
+
+        showLoader(
+            "Saving your request...",
+            "Updating Google Drive and Google Sheets securely."
+        );
+
+        const response =
+            await server(
+                "createSubmission",
+                {
+                    orderNumber: orderNumber,
+                    username: APP.user?.username,
+                    reason: reason,
+                    mandatoryProof: mandatoryUpload,
+                    optionalProof: optionalUpload
+                }
+            );
+
+        hideLoader();
+
+        if (response.success) {
+
+            showToast(
+                "Your request has been successfully submitted. Thanks.",
+                "success"
+            );
+
+            clearSubmissionForm();
+
+            loadRiderDashboard();
+
+        } else {
+
+            showToast(
+                response.message,
+                "error"
+            );
+
+        }
+
+    } catch (error) {
+
+        hideLoader();
+
+        showToast(
+            (error && error.message) ||
+            "We could not submit your request. Please check your connection and try again.",
+            "error"
+        );
+
+    }
+
+}
+/* ==========================================================
+   ADMIN BULK UPLOAD
+========================================================== */
+
+function bulkScope() {
+
+    return String(APP.bulkUpload?.accessScope || "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "_");
+
+}
+
+function uniqueBulkValues(values) {
+
+    const seen = new Set();
+
+    return values.filter(value => {
+        const text = String(value || "").trim();
+        const key = text.toUpperCase();
+
+        if (!text || seen.has(key)) return false;
+
+        seen.add(key);
+        return true;
+    });
+
+}
+
+function sameBulkValue(left, right) {
+
+    return String(left || "").trim().toUpperCase() ===
+        String(right || "").trim().toUpperCase();
+
+}
+
+function setBulkOptions(select, values, placeholder, selectedValue) {
+
+    if (!select) return;
+
+    const items = uniqueBulkValues(values);
+
+    select.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>`;
+
+    items.forEach(value => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+    });
+
+    const selected = items.find(value => sameBulkValue(value, selectedValue));
+    select.value = selected || "";
+
+}
+
+function populateBulkLocationSelectors() {
+
+    const zoneSelect = $("#ddlBulkZone");
+    const warehouseSelect = $("#ddlBulkWarehouse");
+    const hubSelect = $("#ddlBulkHub");
+
+    if (!zoneSelect || !warehouseSelect || !hubSelect) return;
+
+    const locations = APP.bulkUpload?.locations || [];
+    const current = APP.bulkUpload?.currentLocation || {};
+    const scope = bulkScope();
+    const previousZone = zoneSelect.value || current.zone;
+    const previousWarehouse = warehouseSelect.value || current.warehouse;
+    const previousHub = hubSelect.value || current.lmHub;
+
+    setBulkOptions(
+        zoneSelect,
+        locations.map(location => location.zone),
+        "Select Zone",
+        scope === "PAN_INDIA" ? previousZone : current.zone
+    );
+
+    zoneSelect.disabled = scope !== "PAN_INDIA";
+
+    const zoneRows = locations.filter(location =>
+        sameBulkValue(location.zone, zoneSelect.value)
+    );
+
+    setBulkOptions(
+        warehouseSelect,
+        zoneRows.map(location => location.warehouse),
+        "Select Warehouse",
+        scope === "PAN_INDIA" || scope === "ZONE"
+            ? previousWarehouse
+            : current.warehouse
+    );
+
+    warehouseSelect.disabled =
+        scope === "WAREHOUSE" || scope === "LM_HUB" || scope === "HUB";
+
+    const warehouseRows = zoneRows.filter(location =>
+        sameBulkValue(location.warehouse, warehouseSelect.value)
+    );
+
+    setBulkOptions(
+        hubSelect,
+        warehouseRows.map(location => location.lmHub),
+        "Select LM Hub",
+        scope === "LM_HUB" || scope === "HUB" ? current.lmHub : previousHub
+    );
+
+    hubSelect.disabled = scope === "LM_HUB" || scope === "HUB";
+
+}
+
+async function initializeBulkUpload() {
+
+    const section = $("#bulkUploadSection");
+
+    if (!isAdminUser() || !section) return;
+
+    const response = await server("bulkUploadContext");
+
+    if (!response.success) {
+        showToast(response.message, "error");
+        return;
+    }
+
+    APP.bulkUpload = response.data || {
+        locations: [],
+        accessScope: "",
+        currentLocation: {}
+    };
+
+    if (!(APP.bulkUpload.locations || []).length) {
+        showToast(
+            "No permitted location mapping is available for bulk upload. Check Configuration!H:J and the user's access scope.",
+            "warning"
+        );
+    }
+
+    populateBulkLocationSelectors();
+
+}
+
+function downloadBulkTemplate() {
+
+    if (!window.XLSX) {
+        showToast("Spreadsheet support is still loading. Please try again in a moment.", "warning");
+        return;
+    }
+
+    const worksheet = XLSX.utils.aoa_to_sheet([
+        ["Order Number", "Reason", "Hub Manager Remarks"]
+    ]);
+
+    worksheet["!cols"] = [
+        { wch: 18 },
+        { wch: 34 },
+        { wch: 36 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Bulk Upload");
+    const appName = String(APP.configuration?.name || "Delivery_Exception_Portal")
+        .replace(/[^A-Za-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") || "Delivery_Exception_Portal";
+    XLSX.writeFile(workbook, appName + "_Admin_Bulk_Upload_Template.xlsx");
+
+}
+
+function normaliseBulkHeader(value) {
+
+    return String(value || "")
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, " ")
+        .trim();
+
+}
+
+async function readBulkUploadFile(file) {
+
+    const extension = String(file?.name || "")
+        .split(".")
+        .pop()
+        .toLowerCase();
+
+    if (["csv", "xlsx", "xls", "ods"].indexOf(extension) === -1) {
+        throw new Error("Use a CSV, Excel (.xlsx/.xls), or OpenDocument Spreadsheet (.ods) file.");
+    }
+
+    if (!window.XLSX) {
+        throw new Error("Spreadsheet support is still loading. Please try again in a moment.");
+    }
+
+    const workbook = XLSX.read(await file.arrayBuffer(), {
+        type: "array",
+        cellDates: false
+    });
+
+    const sheetName = workbook.SheetNames[0];
+
+    if (!sheetName) {
+        throw new Error("The selected file does not contain a worksheet.");
+    }
+
+    const values = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+        header: 1,
+        defval: "",
+        blankrows: false,
+        raw: false
+    });
+
+    if (values.length < 2) {
+        throw new Error("Add at least one data row below the template headers.");
+    }
+
+    const headers = values[0].map(normaliseBulkHeader);
+    const orderIndex = headers.indexOf("ORDER NUMBER");
+    const reasonIndex = headers.indexOf("REASON");
+    const remarksIndex = headers.indexOf("HUB MANAGER REMARKS");
+
+    if (orderIndex === -1 || reasonIndex === -1 || remarksIndex === -1) {
+        throw new Error(
+            "The first row must contain exactly these headers: Order Number, Reason, Hub Manager Remarks."
+        );
+    }
+
+    const rows = values.slice(1).map(row => ({
+        orderNumber: String(row[orderIndex] || "").trim(),
+        reason: String(row[reasonIndex] || "").trim(),
+        hubManagerRemarks: String(row[remarksIndex] || "").trim()
+    })).filter(row =>
+        row.orderNumber || row.reason || row.hubManagerRemarks
+    );
+
+    if (!rows.length) {
+        throw new Error("The selected file has no uploadable data rows.");
+    }
+
+    return rows;
+
+}
+
+async function submitBulkUpload() {
+
+    const file = $("#fileBulkSubmission")?.files?.[0];
+    const location = {
+        zone: $("#ddlBulkZone")?.value || "",
+        warehouse: $("#ddlBulkWarehouse")?.value || "",
+        lmHub: $("#ddlBulkHub")?.value || ""
+    };
+
+    if (!file) {
+        showToast("Choose a completed bulk-upload file first.", "warning");
+        return;
+    }
+
+    if (!location.zone || !location.warehouse || !location.lmHub) {
+        showToast("Choose the Zone, Warehouse and LM Hub before uploading.", "warning");
+        return;
+    }
+
+    try {
+
+        const rows = await readBulkUploadFile(file);
+
+        if (!(await confirmAction({
+            title: "Confirm bulk upload",
+            message: `${rows.length} submission(s) will be uploaded and approved immediately.`,
+            confirmText: "Upload & approve",
+            details: [
+                { label: "Zone", value: location.zone },
+                { label: "Warehouse", value: location.warehouse },
+                { label: "LM Hub", value: location.lmHub }
+            ]
+        }))) {
+            return;
+        }
+
+        showLoader(
+            "Uploading your batch...",
+            "Your entries are queued and are being approved securely."
+        );
+
+        const response = await server("bulkCreateSubmissions", rows, location);
+
+        hideLoader();
+
+        if (!response.success) {
+            showToast(response.message, "error");
+            return;
+        }
+
+        const summary = $("#bulkUploadSummary");
+        summary.textContent = response.message;
+        summary.classList.remove("hidden");
+        $("#fileBulkSubmission").value = "";
+
+        showToast(response.message, "success");
+        loadAdminDashboard();
+
+    } catch (error) {
+
+        hideLoader();
+        showToast(error.message || "Unable to process the selected bulk-upload file.", "error");
+
+    }
+
+}
+
+/* ==========================================================
+   CLEAR FORM
+========================================================== */
+
+function clearSubmissionForm(){
+
+    $("#txtOrderNumber").value = "";
+    $("#ddlReason").selectedIndex = 0;
+    syncReasonSearchValue("");
+    closeReasonSearchList();
+
+    $("#mandatoryProof").value = "";
+    $("#optionalProof").value = "";
+
+    resetFilePreview("mandatoryPreview");
+    resetFilePreview("optionalPreview");
+
+    /* ---------- Reset Proof Visibility ---------- */
+
+    const mandatory = $("#mandatoryProof");
+    const optional = $("#optionalProof");
+
+    mandatory.required = false;
+
+    mandatory.closest(".form-group").style.display = "none";
+
+    optional.closest(".form-group").style.display = isAdminUser() ? "none" : "";
+
+    $("#attachmentPreviewCard").style.display = isAdminUser() ? "none" : "";
+
+}
+/* ==========================================================
+   EVENTS
+========================================================== */
+
+$("#mandatoryProof")?.addEventListener(
+
+    "change",
+
+    function(){
+
+        previewImage(
+
+            this,
+
+            "mandatoryPreview"
+
+        );
+
+    }
+
+);
+
+$("#optionalProof")?.addEventListener(
+
+    "change",
+
+    function(){
+
+        previewImage(
+
+            this,
+
+            "optionalPreview"
+
+        );
+
+    }
+
+);
+
+/* ==========================================================
+   REASON CHANGE
+========================================================== */
+
+$("#ddlReason").addEventListener("change", function () {
+
+    const selectedReason = $("#ddlReason").value;
+    syncReasonSearchValue(selectedReason);
+
+    const config = (Array.isArray(APP.reasons) ? APP.reasons : [])
+        .find(r => r.reason === selectedReason);
+
+    const mandatoryGroup = $("#mandatoryProofGroup");
+    const optionalGroup = $("#optionalProofGroup");
+
+    if (isAdminUser()) {
+
+        mandatoryGroup.style.display = "none";
+        optionalGroup.style.display = "none";
+        $("#mandatoryProof").required = false;
+        $("#mandatoryProof").value = "";
+        $("#optionalProof").value = "";
+        resetFilePreview("mandatoryPreview");
+        resetFilePreview("optionalPreview");
+
+        return;
+
+    }
+
+    if (!config) {
+
+        mandatoryGroup.style.display = "none";
+        optionalGroup.style.display = "";
+
+        return;
+
+    }
+
+    mandatoryGroup.style.display =
+        config.mandatoryProof ? "" : "none";
+
+    optionalGroup.style.display =
+        config.optionalProof ? "" : "none";
+
+    $("#mandatoryProof").required =
+        config.mandatoryProof;
+
+    if (!config.mandatoryProof) {
+
+        $("#mandatoryProof").value = "";
+        resetFilePreview("mandatoryPreview");
+
+    }
+
+    if (!config.optionalProof) {
+
+        $("#optionalProof").value = "";
+        resetFilePreview("optionalPreview");
+
+    }
+
+});
+
+$("#ddlBulkZone")?.addEventListener("change", function () {
+
+    const warehouse = $("#ddlBulkWarehouse");
+    const hub = $("#ddlBulkHub");
+
+    if (warehouse) warehouse.value = "";
+    if (hub) hub.value = "";
+
+    populateBulkLocationSelectors();
+
+});
+
+$("#ddlBulkWarehouse")?.addEventListener("change", function () {
+
+    const hub = $("#ddlBulkHub");
+
+    if (hub) hub.value = "";
+
+    populateBulkLocationSelectors();
+
+});
+
+$("#btnDownloadBulkTemplate")?.addEventListener("click", downloadBulkTemplate);
+$("#btnBulkUpload")?.addEventListener("click", submitBulkUpload);
+
+
+/* ==========================================================
+   END PART 3
+========================================================== */
+
+</script>
+<script>
+
+/* ==========================================================
+   MY SUBMISSIONS
+========================================================== */
+
+async function loadMySubmission(){
+
+    try{
+
+        const response=await server("mySubmissions", APP.user?.username);
+
+        if(!response.success){
+
+            showToast(response.message,"error");
+
+            return;
+
+        }
+
+        renderMySubmission(response.data);
+
+    }
+
+    catch(error){
+
+        showToast(error.message,"error");
+
+    }
+
+}
+
+
+
+function renderMySubmission(data){
+
+    const tbody=$("#mySubmissionTableBody");
+
+    tbody.innerHTML="";
+
+    if(!data.length){
+
+        tbody.innerHTML=`
+        <tr>
+            <td colspan="8">
+                No submissions found.
+            </td>
+        </tr>`;
+
+        return;
+
+    }
+
+    data.forEach(item=>{
+
+        tbody.insertAdjacentHTML(
+
+            "beforeend",
+
+            `
+            <tr>
+
+                <td>${escapeHtml(item.submissionId)}</td>
+
+                <td>${escapeHtml(item.orderNumber)}</td>
+
+                <td>${escapeHtml(item.reason)}</td>
+
+                <td>${statusBadge(item.status)}</td>
+
+                <td>${escapeHtml(item.assignedTo || "-")}</td>
+
+                <td>${escapeHtml(item.timestamp)}</td>
+
+                <td>${escapeHtml(item.reviewedOn || "-")}</td>
+
+                <td>
+
+                    <button
+                        class="secondary-btn view-submission-btn"
+                        title="View submission"
+                        aria-label="View submission"
+                        onclick="openSubmission('${item.submissionId}')">
+
+                        <span class="material-symbols-outlined" aria-hidden="true">visibility</span>
+
+                    </button>
+
+                </td>
+
+            </tr>
+            `
+
+        );
+
+    });
+
+}
+
+/* ==========================================================
+   OPEN SUBMISSION
+========================================================== */
+
+async function openSubmission(submissionId){
+
+    try{
+
+        showLoader();
+
+        const response =
+            await server(
+                "getSubmission",
+                submissionId
+            );
+
+        hideLoader();
+
+        if(!response.success){
+
+            showToast(
+                response.message,
+                "error"
+            );
+
+            return;
+
+        }
+
+          navigate("reviewRequest");
+
+          setTimeout(() => {
+
+              populateReviewScreen(
+                  response.data,
+                  false
+              );
+
+          }, 50);
+
+    }
+
+    catch(error){
+
+        console.error("OPEN SUBMISSION ERROR:");
+        console.error(error);
+
+        hideLoader();
+
+        showToast(
+            error.message,
+            "error"
+        );
+
+    }
+
+}
+
+/* ==========================================================
+   PENDING REQUESTS
+========================================================== */
+
+async function loadPendingRequest(){
+
+    try{
+
+        const responses = await Promise.all([
+
+            server("pendingRequests"),
+
+            server("pendingLocationOptions")
+
+        ]);
+
+        const response = responses[0];
+
+        const locationResponse = responses[1];
+
+        if(!response.success){
+
+            showToast(
+
+                response.message,
+
+                "error"
+
+            );
+
+            return;
+
+        }
+
+        APP.pendingRequests = Array.isArray(response.data)
+            ? response.data
+            : [];
+
+        APP.pendingLocations = locationResponse.success &&
+            Array.isArray(locationResponse.data)
+                ? locationResponse.data
+                : [];
+
+        populatePendingLocationFilters();
+
+        applyPendingFilters();
+
+    }
+
+    catch(error){
+
+        showToast(
+
+            error.message,
+
+            "error"
+
+        );
+
+    }
+
+}
+
+
+
+function normalisePendingFilterValue(value){
+
+    return String(value ?? "")
+        .trim()
+        .toLowerCase();
+
+}
+
+function samePendingFilterValue(left,right){
+
+    return normalisePendingFilterValue(left) ===
+        normalisePendingFilterValue(right);
+
+}
+
+function uniquePendingFilterValues(values){
+
+    const found = {};
+
+    return values
+        .map(value => String(value ?? "").trim())
+        .filter(value => {
+
+            const key = normalisePendingFilterValue(value);
+
+            if (!key || found[key]) return false;
+
+            found[key] = true;
+
+            return true;
+
+        })
+        .sort((left,right) => left.localeCompare(right));
+
+}
+
+function setPendingFilterOptions(selectId,allLabel,values){
+
+    const select = $(selectId);
+
+    if (!select) return;
+
+    const previous = select.value;
+
+    select.replaceChildren(new Option(allLabel,""));
+
+    values.forEach(value => {
+
+        select.add(new Option(value,value));
+
+    });
+
+    if (values.some(value => samePendingFilterValue(value,previous))) {
+
+        select.value = previous;
+
+    }
+
+}
+
+function populatePendingLocationFilters(){
+
+    const locations = Array.isArray(APP.pendingLocations)
+        ? APP.pendingLocations
+        : [];
+
+    const zone = $("ddlPendingZone");
+    const warehouse = $("ddlPendingWarehouse");
+    const hub = $("ddlPendingHub");
+
+    if (!zone || !warehouse || !hub) return;
+
+    setPendingFilterOptions(
+        "ddlPendingZone",
+        "All Zones",
+        uniquePendingFilterValues(locations.map(row => row.zone))
+    );
+
+    const warehouses = locations
+        .filter(row => !zone.value || samePendingFilterValue(row.zone,zone.value))
+        .map(row => row.warehouse);
+
+    setPendingFilterOptions(
+        "ddlPendingWarehouse",
+        "All Warehouses",
+        uniquePendingFilterValues(warehouses)
+    );
+
+    const hubs = locations
+        .filter(row => !zone.value || samePendingFilterValue(row.zone,zone.value))
+        .filter(row => !warehouse.value || samePendingFilterValue(row.warehouse,warehouse.value))
+        .map(row => row.lmHub);
+
+    setPendingFilterOptions(
+        "ddlPendingHub",
+        "All LM Hubs",
+        uniquePendingFilterValues(hubs)
+    );
+
+}
+
+function applyPendingFilters(){
+
+    const search = normalisePendingFilterValue($("txtPendingSearch")?.value);
+    const zone = $("ddlPendingZone")?.value || "";
+    const warehouse = $("ddlPendingWarehouse")?.value || "";
+    const hub = $("ddlPendingHub")?.value || "";
+
+    const filtered = (APP.pendingRequests || []).filter(item => {
+
+        const searchText = [
+            item.submissionId,
+            item.orderNumber,
+            item.riderName,
+            item.employeeId,
+            item.zone,
+            item.warehouse,
+            item.lmHub
+        ].map(normalisePendingFilterValue).join(" ");
+
+        return (!search || searchText.includes(search)) &&
+            (!zone || samePendingFilterValue(item.zone,zone)) &&
+            (!warehouse || samePendingFilterValue(item.warehouse,warehouse)) &&
+            (!hub || samePendingFilterValue(item.lmHub,hub));
+
+    });
+
+    renderPendingRequest(filtered);
+
+}
+
+function renderPendingRequest(data){
+
+    const tbody=$("#pendingTableBody");
+
+    tbody.innerHTML="";
+
+    if(!data.length){
+
+        tbody.innerHTML=`
+
+        <tr>
+
+            <td colspan="10">
+
+                No Pending Requests
+
+            </td>
+
+        </tr>
+
+        `;
+
+        return;
+
+    }
+
+    data.forEach(item=>{
+
+        const actionLabel = item.status === "Under Review"
+            ? "Continue Review"
+            : "Review";
+
+        tbody.insertAdjacentHTML(
+
+            "beforeend",
+
+            `
+
+            <tr>
+
+                <td>${escapeHtml(item.submissionId)}</td>
+
+                <td>${escapeHtml(item.orderNumber)}</td>
+
+                <td>${escapeHtml(item.riderName)}</td>
+
+                <td>${escapeHtml(item.zone)}</td>
+
+                <td>${escapeHtml(item.warehouse)}</td>
+
+                <td>${escapeHtml(item.lmHub)}</td>
+
+                <td>${escapeHtml(item.reason)}</td>
+
+                <td>${statusBadge(item.status)}</td>
+
+                <td>${escapeHtml(item.timestamp)}</td>
+
+                <td>
+
+                    <button
+
+                        class="primary-btn"
+
+                        onclick="reviewSubmission('${item.submissionId}')">
+
+                        ${actionLabel}
+
+                    </button>
+
+                </td>
+
+            </tr>
+
+            `
+
+        );
+
+    });
+
+}
+
+
+
+/* ==========================================================
+   REVIEW REQUEST
+========================================================== */
+
+function resetReviewScreen(){
+
+    [
+        "reviewSubmissionId", "reviewOrderNumber", "reviewRiderName",
+        "reviewEmployeeId", "reviewZone", "reviewWarehouse", "reviewLMHub",
+        "reviewReason", "reviewStatus", "reviewSubmittedOn", "reviewLatestStatus",
+        "reviewAssignedTo", "reviewReviewedBy", "reviewReviewedOn",
+        "reviewLastUpdated", "reviewTime"
+    ].forEach(id => {
+        const element = $(id);
+        if (element) element.textContent = "-";
+    });
+
+    ["reviewMandatoryProof", "reviewOptionalProof"].forEach(id => {
+        const link = $(id);
+        if (link) {
+            link.href = "#";
+            link.style.display = "none";
+        }
+    });
+
+    const remarks = $("txtManagerRemarks");
+    if (remarks) remarks.value = "";
+
+    [
+        "btnApproveSubmission",
+        "btnRejectSubmission",
+        "btnInitiateRto",
+        "btnPushNdrCalling",
+        "reviewQuickActions"
+    ].forEach(id => {
+        const element = $(id);
+        if (element) element.style.display = "none";
+    });
+
+}
+
+async function reviewSubmission(submissionId) {
+
+    if (APP.reviewOpening) return;
+
+    APP.reviewOpening = true;
+    showLoader(
+        "Wait, opening your review...",
+        "Securing your exclusive review window..."
+    );
+
+    try {
+
+        const claimResponse = await server("claimReview", submissionId);
+
+        if (!claimResponse.success) {
+            showToast(claimResponse.message, "warning");
+            await loadPendingRequest();
+            return;
+        }
+
+        const response = await server("getSubmission", submissionId);
+
+        if (!response.success) {
+            showToast(response.message, "error");
+            return;
+        }
+
+        navigate("reviewRequest", "page-pull-up");
+        populateReviewScreen(response.data, true);
+
+    } catch (error) {
+
+        showToast(
+            error.message || "Unable to open the review request.",
+            "error"
+        );
+
+    } finally {
+
+        hideLoader();
+        APP.reviewOpening = false;
+
+    }
+}
+
+/* ==========================================================
+   GOOGLE DRIVE IMAGE URL
+========================================================== */
+
+function driveImageUrl(url){
+
+    if(!url) return "";
+
+    const match = url.match(/\/d\/([^\/]+)/);
+
+    if(!match) return "";
+
+    return "https://drive.google.com/uc?export=view&id=" + match[1];
+
+}
+
+/* ==========================================================
+   POPULATE REVIEW
+========================================================== */
+
+function populateReviewScreen(data,isManager){
+
+    $("#reviewSubmissionId").textContent = data.submissionId;
+
+    $("#reviewOrderNumber").textContent = data.orderNumber;
+
+    $("#reviewRiderName").textContent = data.riderName;
+
+    $("#reviewEmployeeId").textContent = data.employeeId;
+
+    $("#reviewZone").textContent = data.zone;
+
+    $("#reviewWarehouse").textContent = data.warehouse;
+
+    $("#reviewLMHub").textContent = data.lmHub;
+
+    $("#reviewReason").textContent = data.reason;
+
+    $("#reviewStatus").innerHTML = statusBadge(data.status);
+
+    $("#reviewSubmittedOn").textContent = data.timestamp;
+
+    /************************************************
+     * Review History
+     ************************************************/
+
+    $("#reviewLatestStatus").textContent =
+        data.status || "-";
+
+    $("#reviewAssignedTo").textContent =
+        data.assignedTo || "-";
+
+    $("#reviewReviewedBy").textContent =
+        data.reviewedBy || "-";
+
+    $("#reviewReviewedOn").textContent =
+        data.reviewedOn || "-";
+
+    $("#reviewLastUpdated").textContent =
+        data.lastUpdated || "-";
+
+    $("#reviewTime").textContent =
+        data.reviewTime || "-";
+
+    /* ======================================================
+       MANDATORY PROOF
+    ====================================================== */
+
+    const mandatoryProofUrl = safeExternalUrl(data.mandatoryProof);
+    const optionalProofUrl = safeExternalUrl(data.optionalProof);
+
+    $("#reviewMandatoryProof").href =
+        mandatoryProofUrl || "#";
+
+    $("#reviewMandatoryProof").style.display =
+        mandatoryProofUrl
+            ? "inline-flex"
+            : "none";
+
+    /* ======================================================
+       OPTIONAL PROOF
+    ====================================================== */
+
+    $("#reviewOptionalProof").href =
+        optionalProofUrl || "#";
+
+    $("#reviewOptionalProof").style.display =
+        optionalProofUrl
+            ? "inline-flex"
+            : "none";
+
+    /* ======================================================
+       REMARKS
+    ====================================================== */
+
+    const remarksBox = $("#txtManagerRemarks");
+
+        if (remarksBox) {
+
+            remarksBox.value = "";
+
+        }
+
+    /* ======================================================
+       MANAGER BUTTONS
+    ====================================================== */
+
+    $("#btnApproveSubmission").style.display =
+        isManager
+            ? "inline-block"
+            : "none";
+
+    $("#btnRejectSubmission").style.display =
+        isManager
+            ? "inline-block"
+            : "none";
+
+    const quickActions = $("#reviewQuickActions");
+
+    if (quickActions) {
+        quickActions.classList.toggle("hidden", !isManager);
+        quickActions.style.display = isManager ? "block" : "none";
+    }
+
+    ["btnInitiateRto", "btnPushNdrCalling"].forEach(id => {
+        const button = $("#" + id);
+        if (button) button.style.display = isManager ? "inline-block" : "none";
+    });
+
+}
+
+/* ==========================================================
+   APPROVE
+========================================================== */
+
+async function approveSubmission(){
+
+    await submitReview(
+
+        "Approved"
+
+    );
+
+}
+
+async function approveWithQuickAction(remarks, quickAction = ""){
+
+    const remarksBox = $("#txtManagerRemarks");
+
+    if (remarksBox) remarksBox.value = remarks;
+
+    await submitReview("Approved", remarks, quickAction);
+
+}
+
+
+
+/* ==========================================================
+   REJECT
+========================================================== */
+
+async function rejectSubmission(){
+
+    await submitReview(
+
+        "Rejected"
+
+    );
+
+}
+
+
+
+/* ==========================================================
+   SAVE REVIEW
+========================================================== */
+
+async function submitReview(status, fixedRemarks = "", quickAction = ""){
+
+    const submissionId=
+
+        $("#reviewSubmissionId").textContent;
+
+    const typedRemarks=
+
+        $("#txtManagerRemarks")
+
+        .value
+
+        .trim();
+
+    const remarks = fixedRemarks || typedRemarks;
+
+    if(!remarks){
+
+        showToast(
+
+            "Remarks are required.",
+
+            "warning"
+
+        );
+
+        return;
+
+    }
+
+    try{
+
+        showLoader(
+            "Saving your review...",
+            "Updating the submission securely..."
+        );
+
+        const response=
+
+            await server(
+
+                "updateStatus",
+
+                submissionId,
+
+                status,
+
+                remarks,
+
+                { quickAction: quickAction || "" }
+
+            );
+
+        hideLoader();
+
+        if(!response.success){
+
+            showToast(
+
+                response.message,
+
+                "error"
+
+            );
+
+            return;
+
+        }
+
+        showToast(
+
+            "Review Saved Successfully",
+
+            "success"
+
+        );
+
+        loadPendingRequest();
+
+        navigate(
+
+            "pendingRequest"
+
+        );
+
+    }
+
+    catch(error){
+
+        hideLoader();
+
+        showToast(
+
+            error.message,
+
+            "error"
+
+        );
+
+    }
+
+}
+
+
+
+/* ==========================================================
+   BUTTON EVENTS
+========================================================== */
+
+$("#btnApproveSubmission")
+
+?.addEventListener(
+
+    "click",
+
+    approveSubmission
+
+);
+
+
+
+$("#btnRejectSubmission")
+
+?.addEventListener(
+
+    "click",
+
+    rejectSubmission
+
+);
+
+$("#btnInitiateRto")
+
+?.addEventListener(
+
+    "click",
+
+    () => approveWithQuickAction("Initiate RTO")
+
+);
+
+$("#btnPushNdrCalling")
+
+?.addEventListener(
+
+    "click",
+
+    () => approveWithQuickAction("Push For NDR Calling", "PUSH_NDR_CALLING")
+
+);
+
+
+
+$("#btnBackPending")
+
+?.addEventListener(
+
+    "click",
+
+    ()=>{
+
+        navigate(
+
+            "pendingRequest"
+
+        );
+
+    }
+
+);
+
+
+
+$("#btnCancelReview")
+
+?.addEventListener(
+
+    "click",
+
+    ()=>{
+
+        navigate(
+
+            "pendingRequest"
+
+        );
+
+    }
+
+);
+
+/* ==========================================================
+   RIDER SUBMISSION EVENTS
+========================================================== */
+
+$("#btnSubmitRequest")
+
+?.addEventListener(
+
+    "click",
+
+    submitRequest
+
+);
+
+$("#btnResetSubmission")
+
+?.addEventListener(
+
+    "click",
+
+    clearSubmissionForm
+
+);
+
+
+/* ==========================================================
+   END PART 4
+========================================================== */
+
+</script>
+<script>
+
+/* ==========================================================
+   ADMIN DASHBOARD
+========================================================== */
+
+async function loadAdminDashboard(){
+
+    try{
+
+        const response=
+
+            await server(
+
+                "adminDashboard"
+
+            );
+
+        if(!response.success){
+
+            showToast(
+
+                response.message,
+
+                "error"
+
+            );
+
+            return;
+
+        }
+
+        populateAdminDashboard(
+
+            response.data
+
+        );
+
+    }
+
+    catch(error){
+
+        showToast(
+
+            error.message,
+
+            "error"
+
+        );
+
+    }
+
+}
+
+
+
+function populateAdminDashboard(data){
+
+    $("#adminTotalRequests").textContent=
+
+        data.total||0;
+
+    $("#adminPendingRequests").textContent=
+
+        data.pending||0;
+
+    $("#adminApprovedRequests").textContent=
+
+        data.approved||0;
+
+    $("#adminRejectedRequests").textContent=
+
+        data.rejected||0;
+
+    renderSummaryTable(
+
+        "zoneSummaryBody",
+
+        data.zoneWise||[]
+
+    );
+
+    renderSummaryTable(
+
+        "warehouseSummaryBody",
+
+        data.warehouseWise||[]
+
+    );
+
+    renderSummaryTable(
+
+        "hubSummaryBody",
+
+        data.hubWise||[]
+
+    );
+
+    renderRecentActivity(
+
+        data.recentActivity||[]
+
+    );
+
+}
+
+
+
+/* ==========================================================
+   SUMMARY TABLE
+========================================================== */
+
+function renderSummaryTable(id,data){
+
+    const tbody=$(id);
+
+    tbody.innerHTML="";
+
+    if(!data.length){
+
+        tbody.innerHTML=
+
+        `<tr>
+
+            <td colspan="5">
+
+                No Records Found
+
+            </td>
+
+        </tr>`;
+
+        return;
+
+    }
+
+    data.forEach(item=>{
+
+        tbody.insertAdjacentHTML(
+
+            "beforeend",
+
+            `
+
+            <tr>
+
+                <td>${escapeHtml(item.name)}</td>
+
+                <td>${escapeHtml(item.pending ?? 0)}</td>
+
+                <td>${escapeHtml(item.rejected)}</td>
+
+                <td>${escapeHtml(item.approved)}</td>
+
+                <td>${escapeHtml(item.total)}</td>
+
+            </tr>
+
+            `
+
+        );
+
+    });
+
+}
+
+
+
+/* ==========================================================
+   RECENT ACTIVITY
+========================================================== */
+
+function renderRecentActivity(data){
+
+    const tbody=$("#recentActivityBody");
+
+    tbody.innerHTML="";
+
+    if(!data.length){
+
+        tbody.innerHTML=
+
+        `<tr>
+
+            <td colspan="6">
+
+                No Activity
+
+            </td>
+
+        </tr>`;
+
+        return;
+
+    }
+
+    data.forEach(item=>{
+
+        tbody.insertAdjacentHTML(
+
+            "beforeend",
+
+            `
+
+            <tr>
+
+                <td>${escapeHtml(item.submissionId)}</td>
+
+                <td>${escapeHtml(item.orderNumber)}</td>
+
+                <td>${escapeHtml(item.riderName)}</td>
+
+                <td>${statusBadge(item.status)}</td>
+
+                <td>${escapeHtml(item.reviewedBy || "-")}</td>
+
+                <td>${escapeHtml(item.reviewedOn || "-")}</td>
+
+            </tr>
+
+            `
+
+        );
+
+    });
+
+}
+
+
+
+/* ==========================================================
+   REPOSITORY DATE RANGE
+========================================================== */
+
+function isoDate(date) {
+
+    const copy = new Date(date.getTime());
+    copy.setHours(0, 0, 0, 0);
+
+    const year = copy.getFullYear();
+    const month = String(copy.getMonth() + 1).padStart(2, "0");
+    const day = String(copy.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+
+}
+
+function shiftDate(date, days) {
+
+    const copy = new Date(date.getTime());
+    copy.setDate(copy.getDate() + days);
+
+    return copy;
+
+}
+
+function startOfWeek(date) {
+
+    const copy = new Date(date.getTime());
+    const day = copy.getDay();
+    const distanceToMonday = day === 0 ? -6 : 1 - day;
+
+    return shiftDate(copy, distanceToMonday);
+
+}
+
+function startOfQuarter(date) {
+
+    return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1);
+
+}
+
+function repositoryPresetRange(preset) {
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const range = (start, end) => ({
+        start: isoDate(start),
+        end: isoDate(end)
+    });
+
+    switch (preset) {
+        case "today":
+            return range(today, today);
+        case "yesterday":
+            return range(shiftDate(today, -1), shiftDate(today, -1));
+        case "previous7":
+            return range(shiftDate(today, -13), shiftDate(today, -7));
+        case "last7":
+            return range(shiftDate(today, -6), today);
+        case "last15":
+            return range(shiftDate(today, -14), today);
+        case "last30":
+            return range(shiftDate(today, -29), today);
+        case "last90":
+            return range(shiftDate(today, -89), today);
+        case "thisMonth":
+            return range(new Date(today.getFullYear(), today.getMonth(), 1), today);
+        case "lastWeek": {
+            const currentWeek = startOfWeek(today);
+            return range(shiftDate(currentWeek, -7), shiftDate(currentWeek, -1));
+        }
+        case "lastMonth":
+            return range(
+                new Date(today.getFullYear(), today.getMonth() - 1, 1),
+                new Date(today.getFullYear(), today.getMonth(), 0)
+            );
+        case "lastQuarter": {
+            const currentQuarter = startOfQuarter(today);
+            const previousQuarterEnd = shiftDate(currentQuarter, -1);
+            return range(startOfQuarter(previousQuarterEnd), previousQuarterEnd);
+        }
+        case "weekToDate":
+            return range(startOfWeek(today), today);
+        case "monthToDate":
+            return range(new Date(today.getFullYear(), today.getMonth(), 1), today);
+        case "quarterToDate":
+            return range(startOfQuarter(today), today);
+        default:
+            return { start: "", end: "" };
+    }
+
+}
+
+function readableRepositoryDate(value) {
+
+    if (!value) return "";
+
+    return new Date(value + "T00:00:00").toLocaleDateString("en-US", {
+        day: "numeric",
+        month: "short",
+        year: "numeric"
+    });
+
+}
+
+function updateRepositoryDateRangeLabel() {
+
+    const label = $("#repositoryDateRangeLabel");
+    const range = APP.repositoryDateRange || {};
+
+    if (!label) return;
+
+    if (!range.start && !range.end) {
+        label.textContent = "All dates";
+        return;
+    }
+
+    const start = readableRepositoryDate(range.start) || "Start";
+    const end = readableRepositoryDate(range.end) || "Today";
+
+    label.textContent = `${start} – ${end}`;
+
+}
+
+function openRepositoryDateRangeDialog() {
+
+    const container = $("#dialogContainer");
+
+    if (!container) return;
+
+    const range = Object.assign({ start: "", end: "" }, APP.repositoryDateRange || {});
+    const presets = [
+        ["today", "Today"],
+        ["yesterday", "Yesterday"],
+        ["previous7", "Previous 7 Days"],
+        ["last7", "Last 7 Days"],
+        ["last15", "Last 15 Days"],
+        ["last30", "Last 30 Days"],
+        ["last90", "Last 90 Days"],
+        ["thisMonth", "This Month"],
+        ["lastWeek", "Last Week"],
+        ["lastMonth", "Last Month"],
+        ["lastQuarter", "Last Quarter"],
+        ["weekToDate", "Week to Date"],
+        ["monthToDate", "Month to Date"],
+        ["quarterToDate", "Quarter to Date"]
+    ];
+
+    container.innerHTML = `
+        <div class="modal active repository-date-modal"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="repositoryDateRangeTitle">
+            <div class="modal-content" role="document">
+                <div class="modal-header">
+                    <span id="repositoryDateRangeTitle">Filter repository by submission date</span>
+                </div>
+                <div class="modal-body repository-date-body">
+                    <div class="repository-date-presets">
+                        <button type="button" class="repository-date-preset active" data-repository-date-clear>
+                            All Dates
+                        </button>
+                        ${presets.map(([key, label]) => `
+                            <button type="button" class="repository-date-preset" data-repository-date-preset="${key}">
+                                ${label}
+                            </button>
+                        `).join("")}
+                    </div>
+                    <div class="repository-date-inputs">
+                        <div class="form-group">
+                            <label for="repositoryDateStart">From</label>
+                            <input id="repositoryDateStart" type="date" class="form-control" value="${range.start}">
+                        </div>
+                        <div class="repository-date-arrow" aria-hidden="true">→</div>
+                        <div class="form-group">
+                            <label for="repositoryDateEnd">To</label>
+                            <input id="repositoryDateEnd" type="date" class="form-control" value="${range.end}">
+                        </div>
+                        <p class="repository-date-hint">
+                            Select a quick range or choose a custom start and end date.
+                        </p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="secondary-btn" data-repository-date-cancel>Cancel</button>
+                    <button type="button" class="secondary-btn" data-repository-date-clear>Clear</button>
+                    <button type="button" class="primary-btn" data-repository-date-apply>Apply</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const modal = container.querySelector(".repository-date-modal");
+    const startInput = container.querySelector("#repositoryDateStart");
+    const endInput = container.querySelector("#repositoryDateEnd");
+
+    function close() {
+        document.removeEventListener("keydown", onKeydown);
+        container.innerHTML = "";
+    }
+
+    function selectPresetButton(button) {
+        container.querySelectorAll(".repository-date-preset")
+            .forEach(item => item.classList.remove("active"));
+        button?.classList.add("active");
+    }
+
+    function onKeydown(event) {
+        if (event.key === "Escape") close();
+    }
+
+    container.querySelectorAll("[data-repository-date-preset]")
+        .forEach(button => button.addEventListener("click", () => {
+            const next = repositoryPresetRange(button.dataset.repositoryDatePreset);
+            startInput.value = next.start;
+            endInput.value = next.end;
+            selectPresetButton(button);
+        }));
+
+    container.querySelectorAll("[data-repository-date-clear]")
+        .forEach(button => button.addEventListener("click", () => {
+            startInput.value = "";
+            endInput.value = "";
+            selectPresetButton(container.querySelector("[data-repository-date-clear]"));
+        }));
+
+    [startInput, endInput].forEach(input => input?.addEventListener("change", () => {
+        container.querySelectorAll(".repository-date-preset")
+            .forEach(item => item.classList.remove("active"));
+    }));
+
+    container.querySelector("[data-repository-date-cancel]")
+        ?.addEventListener("click", close);
+
+    container.querySelector("[data-repository-date-apply]")
+        ?.addEventListener("click", () => {
+            const start = startInput.value;
+            const end = endInput.value;
+
+            if (start && end && start > end) {
+                showToast("The end date must be the same as or later than the start date.", "warning");
+                return;
+            }
+
+            APP.repositoryDateRange = { start, end };
+            updateRepositoryDateRangeLabel();
+            close();
+
+            if ($("#txtRepositorySearch")?.value.trim()) {
+                searchRepository();
+            }
+        });
+
+    modal?.addEventListener("click", event => {
+        if (event.target === modal) close();
+    });
+
+    document.addEventListener("keydown", onKeydown);
+
+}
+
+/* ==========================================================
+   ADMIN REPOSITORY
+========================================================== */
+
+async function searchRepository(){
+
+    const type=
+
+        $("#ddlRepositorySearchType").value;
+
+    const value=
+
+        $("#txtRepositorySearch")
+
+        .value
+
+        .trim();
+
+    const dateRange = Object.assign({}, APP.repositoryDateRange || {});
+
+    if(!value){
+
+        showToast(
+
+            "Enter search value.",
+
+            "warning"
+
+        );
+
+        return;
+
+    }
+
+    try{
+
+        showLoader(
+            "Preparing your results...",
+            "Keep calm — your search results are being populated."
+        );
+
+        const response = type === "orderHistory"
+            ? await server("repositoryOrderHistory", value, dateRange)
+            : await server("repositorySearch", type, value, dateRange);
+
+        hideLoader();
+
+        if(!response.success){
+
+            showToast(
+
+                response.message,
+
+                "error"
+
+            );
+
+            return;
+
+        }
+
+        if (type === "orderHistory") {
+            renderRepositoryAudit(response.data);
+        } else {
+            renderRepository(response.data);
+        }
+
+    }
+
+    catch(error){
+
+        hideLoader();
+
+        showToast(
+
+            error.message,
+
+            "error"
+
+        );
+
+    }
+
+}
+
+
+
+function updateRepositoryExportButtons(){
+
+    const hasResults = Array.isArray(APP.repositoryResults) &&
+        APP.repositoryResults.length > 0;
+
+    ["btnRepositoryExportCsv", "btnRepositoryExportExcel"]
+        .forEach(id => {
+            const button = $("#" + id);
+            if (button) button.disabled = !hasResults;
+        });
+
+}
+
+function repositoryExportColumns(){
+
+    if (APP.repositoryResultMode === "audit") {
+        return [
+            ["Timestamp", "timestamp"],
+            ["Submission ID", "submissionId"],
+            ["Order Number", "orderNumber"],
+            ["Action", "action"],
+            ["Old Status", "oldStatus"],
+            ["New Status", "newStatus"],
+            ["Performed By", "performedBy"],
+            ["Role", "role"],
+            ["Remarks", "remarks"]
+        ];
+    }
+
+    return [
+        ["Submission ID", "submissionId"],
+        ["Submitted On", "timestamp"],
+        ["Order Number", "orderNumber"],
+        ["Rider Name", "riderName"],
+        ["Employee ID", "employeeId"],
+        ["Zone", "zone"],
+        ["Warehouse", "warehouse"],
+        ["LM Hub", "lmHub"],
+        ["Status", "status"],
+        ["Reviewed By", "reviewedBy"],
+        ["Reviewed On", "reviewedOn"]
+    ];
+
+}
+
+function downloadRepositoryFile(content, mimeType, fileName){
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+
+}
+
+function exportRepository(format){
+
+    const rows = APP.repositoryResults || [];
+
+    if (!rows.length) {
+        showToast("Run a repository search before exporting.", "warning");
+        return;
+    }
+
+    const columns = repositoryExportColumns();
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    if (format === "csv") {
+
+        const csvCell = value =>
+            '"' + String(value ?? "").replace(/"/g, '""') + '"';
+
+        const content = "\uFEFF" + [
+            columns.map(column => csvCell(column[0])).join(","),
+            ...rows.map(item =>
+                columns.map(column => csvCell(item[column[1]])).join(",")
+            )
+        ].join("\r\n");
+
+        downloadRepositoryFile(
+            content,
+            "text/csv;charset=utf-8",
+            "repository-results-" + stamp + ".csv"
+        );
+
+    } else {
+
+        const headerCells = columns.map(column =>
+            "<th>" + escapeHtml(column[0]) + "</th>"
+        ).join("");
+        const bodyRows = rows.map(item =>
+            "<tr>" + columns.map(column =>
+                "<td>" + escapeHtml(item[column[1]] ?? "") + "</td>"
+            ).join("") + "</tr>"
+        ).join("");
+
+        const content = "\uFEFF<!doctype html><html><head><meta charset=\"utf-8\">" +
+            "<style>table{border-collapse:collapse}th,td{border:1px solid #b7c5d8;padding:6px;white-space:nowrap}th{background:#eef3f8}</style>" +
+            "</head><body><table><thead><tr>" + headerCells +
+            "</tr></thead><tbody>" + bodyRows +
+            "</tbody></table></body></html>";
+
+        downloadRepositoryFile(
+            content,
+            "application/vnd.ms-excel;charset=utf-8",
+            "repository-results-" + stamp + ".xls"
+        );
+
+    }
+
+}
+
+function renderRepository(data){
+
+    APP.repositoryResults = Array.isArray(data) ? data : [];
+    APP.repositoryResultMode = "submissions";
+    updateRepositoryExportButtons();
+
+    $("#repositoryResultsCard")?.classList.remove("hidden");
+    $("#repositoryAuditCard")?.classList.add("hidden");
+
+    data = APP.repositoryResults;
+
+    const tbody=$("#repositoryTableBody");
+
+    tbody.innerHTML="";
+
+    if(!data.length){
+
+        tbody.innerHTML=
+
+        `<tr>
+
+            <td colspan="11">
+
+                No Records Found
+
+            </td>
+
+        </tr>`;
+
+        return;
+
+    }
+
+    data.forEach(item=>{
+
+        tbody.insertAdjacentHTML(
+
+            "beforeend",
+
+            `
+
+            <tr>
+
+                <td>${escapeHtml(item.submissionId)}</td>
+
+                <td>${escapeHtml(item.timestamp || "-")}</td>
+
+                <td>${escapeHtml(item.orderNumber)}</td>
+
+                <td>${escapeHtml(item.riderName)}</td>
+
+                <td>${escapeHtml(item.employeeId)}</td>
+
+                <td>${escapeHtml(item.zone)}</td>
+
+                <td>${escapeHtml(item.warehouse)}</td>
+
+                <td>${escapeHtml(item.lmHub)}</td>
+
+                <td>${statusBadge(item.status)}</td>
+
+                <td>${escapeHtml(item.reviewedBy || "-")}</td>
+
+                <td>${escapeHtml(item.reviewedOn || "-")}</td>
+
+            </tr>
+
+            `
+
+        );
+
+    });
+
+}
+
+function renderRepositoryAudit(data){
+
+    APP.repositoryResults = Array.isArray(data) ? data : [];
+    APP.repositoryResultMode = "audit";
+    updateRepositoryExportButtons();
+
+    $("#repositoryResultsCard")?.classList.add("hidden");
+    $("#repositoryAuditCard")?.classList.remove("hidden");
+
+    const rows = APP.repositoryResults;
+    const tbody = $("#repositoryAuditTableBody");
+    const title = $("#repositoryAuditTitle");
+
+    if (title) {
+        title.textContent = `Order Audit History (${rows.length} event${rows.length === 1 ? "" : "s"})`;
+    }
+
+    tbody.innerHTML = "";
+
+    if (!rows.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="9">No audit events found for this order number.</td>
+            </tr>`;
+        return;
+    }
+
+    rows.forEach(item => {
+        tbody.insertAdjacentHTML("beforeend", `
+            <tr>
+                <td>${escapeHtml(item.timestamp || "-")}</td>
+                <td>${escapeHtml(item.submissionId || "-")}</td>
+                <td>${escapeHtml(item.orderNumber || "-")}</td>
+                <td>${escapeHtml(item.action || "-")}</td>
+                <td>${escapeHtml(item.oldStatus || "-")}</td>
+                <td>${escapeHtml(item.newStatus || "-")}</td>
+                <td>${escapeHtml(item.performedBy || "-")}</td>
+                <td>${escapeHtml(item.role || "-")}</td>
+                <td>${escapeHtml(item.remarks || "-")}</td>
+            </tr>
+        `);
+    });
+
+}
+
+
+
+/* ==========================================================
+   NOTIFICATIONS
+========================================================== */
+
+async function loadNotifications(){
+
+    try{
+
+        const response=
+
+            await server(
+
+                "notifications",
+
+                APP.user?.username
+
+            );
+
+        if(!response.success){
+
+            return;
+
+        }
+
+        renderNotifications(
+
+            response.data
+
+        );
+
+    }
+
+    catch(error){
+
+        console.error(error);
+
+    }
+
+}
+
+
+
+function renderNotifications(data){
+
+    const container=
+
+        $("#notificationList");
+
+    container.innerHTML="";
+
+    if(!data.length){
+
+        container.innerHTML=
+
+        `<div class="notification-empty">
+
+            No Notifications
+
+        </div>`;
+
+        return;
+
+    }
+
+    data.forEach(item=>{
+
+        container.insertAdjacentHTML(
+
+            "beforeend",
+
+            `
+
+            <div class="notification-item ${item.read ? "" : "unread"}">
+
+                <div class="notification-title">
+
+                    ${escapeHtml(item.title)}
+
+                </div>
+
+                <div class="notification-message">
+
+                    ${escapeHtml(item.message)}
+
+                </div>
+
+                <div class="notification-footer">
+
+                    <span>
+
+                        ${escapeHtml(item.date)}
+
+                    </span>
+
+                    ${!item.read
+
+                    ? `<button
+                            class="secondary-btn"
+                            onclick="markNotificationRead('${item.id}')">
+
+                            Mark Read
+
+                       </button>`
+
+                    : ""}
+
+                </div>
+
+            </div>
+
+            `
+
+        );
+
+    });
+
+}
+
+
+
+async function markNotificationRead(id){
+
+    await server(
+
+        "markNotificationRead",
+
+        id
+
+    );
+
+    loadNotifications();
+
+    loadNotificationCount();
+
+}
+
+
+
+async function markAllNotificationsRead(){
+
+    await server(
+
+        "markAllNotificationsRead",
+
+        APP.user?.username
+
+    );
+
+    loadNotifications();
+
+    loadNotificationCount();
+
+}
+
+
+
+/* ==========================================================
+   SETTINGS
+========================================================== */
+
+function loadSettings(){
+
+    if(!APP.user){
+
+        return;
+
+    }
+
+    $("#settingUsername").value=
+
+        APP.user.username;
+
+    $("#settingRiderName").value=
+
+        APP.user.riderName;
+
+    $("#settingEmployeeId").value=
+
+        APP.user.employeeId;
+
+    $("#settingRole").value=
+
+        APP.user.role;
+
+    $("#settingZone").value=
+
+        APP.user.zone;
+
+    $("#settingWarehouse").value=
+
+        APP.user.warehouse;
+
+    $("#settingHub").value=
+
+        APP.user.lmHub;
+
+    $("#settingStatus").value=
+
+        APP.user.status;
+
+}
+
+
+
+/* ==========================================================
+   CHANGE PASSWORD
+========================================================== */
+
+async function changePassword(){
+
+    const current=
+
+        $("#currentPassword").value;
+
+    const password=
+
+        $("#newPassword").value;
+
+    const confirm=
+
+        $("#confirmPassword").value;
+
+    if(password!==confirm){
+
+        showToast(
+
+            "Passwords do not match.",
+
+            "warning"
+
+        );
+
+        return;
+
+    }
+
+    try{
+
+        showLoader();
+
+        const response=
+
+            await server(
+
+                "changePassword",
+
+                APP.user?.username,
+
+                current,
+
+                password
+
+            );
+
+        hideLoader();
+
+        if(!response.success){
+
+            showToast(
+
+                response.message,
+
+                "error"
+
+            );
+
+            return;
+
+        }
+
+        showToast(
+
+            "Password Changed Successfully",
+
+            "success"
+
+        );
+
+        $("#currentPassword").value="";
+
+        $("#newPassword").value="";
+
+        $("#confirmPassword").value="";
+
+    }
+
+    catch(error){
+
+        hideLoader();
+
+        showToast(
+
+            error.message,
+
+            "error"
+
+        );
+
+    }
+
+}
+
+
+
+/* ==========================================================
+   EVENTS
+========================================================== */
+
+$("#btnRepositorySearch")
+
+?.addEventListener(
+
+    "click",
+
+    searchRepository
+
+);
+
+$("#btnRepositoryDateRange")
+
+?.addEventListener(
+
+    "click",
+
+    openRepositoryDateRangeDialog
+
+);
+
+$("#btnRepositoryExportCsv")
+
+?.addEventListener(
+
+    "click",
+
+    () => exportRepository("csv")
+
+);
+
+$("#btnRepositoryExportExcel")
+
+?.addEventListener(
+
+    "click",
+
+    () => exportRepository("excel")
+
+);
+
+
+
+$("#btnMarkAllRead")
+
+?.addEventListener(
+
+    "click",
+
+    markAllNotificationsRead
+
+);
+
+
+
+$("#btnChangePassword")
+
+?.addEventListener(
+
+    "click",
+
+    changePassword
+
+);
+
+$("#btnLogoutSettings")
+
+?.addEventListener(
+
+    "click",
+
+    logout
+
+);
+
+/* ==========================================================
+   END PART 5
+========================================================== */
+
+</script>
+<script>
+
+/* ==========================================================
+   GLOBAL REFRESH
+========================================================== */
+
+function refreshCurrentPage(){
+
+    switch(APP.currentPage){
+
+        case "riderDashboard":
+
+            loadRiderDashboard();
+
+            break;
+
+        case "riderSubmission":
+
+            initializeSubmission();
+
+            break;
+
+        case "mySubmission":
+
+            loadMySubmission();
+
+            break;
+
+        case "pendingRequest":
+
+            loadPendingRequest();
+
+            break;
+
+        case "reviewRequest":
+
+            break;
+
+        case "adminDashboard":
+
+            loadAdminDashboard();
+
+            break;
+
+        case "adminRepository":
+
+            break;
+
+        case "notifications":
+
+            loadNotifications();
+
+            break;
+
+        case "settings":
+
+            loadSettings();
+
+            break;
+
+    }
+
+}
+
+
+
+/* ==========================================================
+   SEARCH FILTERS
+========================================================== */
+
+function filterTable(inputId,tableBodyId){
+
+    const value=
+
+        $(inputId)
+
+        .value
+
+        .toLowerCase()
+
+        .trim();
+
+    const rows=
+
+        $(tableBodyId)
+
+        .querySelectorAll("tr");
+
+    rows.forEach(row=>{
+
+        row.style.display=
+
+            row.innerText
+
+                .toLowerCase()
+
+                .includes(value)
+
+            ? ""
+
+            : "none";
+
+    });
+
+}
+
+
+
+/* ==========================================================
+   FORMAT DATE
+========================================================== */
+
+function formatDate(date){
+
+    if(!date){
+
+        return "-";
+
+    }
+
+    return new Date(date)
+
+        .toLocaleString();
+
+}
+
+
+
+/* ==========================================================
+   FORMAT NULL
+========================================================== */
+
+function safe(value){
+
+    return value || "-";
+
+}
+
+
+
+/* ==========================================================
+   RESET FORM
+========================================================== */
+
+function resetForm(formId){
+
+    const form=$(formId);
+
+    if(form){
+
+        form.reset();
+
+    }
+
+}
+
+
+
+/* ==========================================================
+   CONFIRM
+========================================================== */
+
+function confirmAction(options){
+
+    const config = typeof options === "string"
+        ? { message: options }
+        : (options || {});
+
+    const container = document.getElementById("dialogContainer");
+
+    if (!container) {
+        return Promise.resolve(window.confirm(config.message || "Are you sure?"));
+    }
+
+    const title = config.title || "Please confirm";
+    const message = config.message || "Are you sure you want to continue?";
+    const confirmText = config.confirmText || "Confirm";
+    const cancelText = config.cancelText || "Cancel";
+    const details = Array.isArray(config.details) ? config.details : [];
+    const detailRows = details.map(detail => `
+        <div class="confirmation-location-row">
+            <span>${escapeHtml(detail.label || "")}</span>
+            <strong>${escapeHtml(detail.value || "-")}</strong>
+        </div>
+    `).join("");
+
+    return new Promise(resolve => {
+
+        container.innerHTML = `
+            <div class="modal active confirmation-modal"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="confirmationDialogTitle">
+                <div class="modal-content" role="document">
+                    <div class="modal-header">
+                        <span id="confirmationDialogTitle">${escapeHtml(title)}</span>
+                    </div>
+                    <div class="modal-body">
+                        <p class="confirmation-message">${escapeHtml(message)}</p>
+                        ${detailRows ? `<div class="confirmation-location">${detailRows}</div>` : ""}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="secondary-btn" data-confirm-cancel>
+                            ${escapeHtml(cancelText)}
+                        </button>
+                        <button type="button" class="primary-btn" data-confirm-approve>
+                            ${escapeHtml(confirmText)}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const modal = container.querySelector(".confirmation-modal");
+        const confirmButton = container.querySelector("[data-confirm-approve]");
+        const cancelButton = container.querySelector("[data-confirm-cancel]");
+
+        function finish(result) {
+            document.removeEventListener("keydown", handleKeydown);
+            container.innerHTML = "";
+            resolve(result);
+        }
+
+        function handleKeydown(event) {
+            if (event.key === "Escape") finish(false);
+        }
+
+        confirmButton?.addEventListener("click", () => finish(true));
+        cancelButton?.addEventListener("click", () => finish(false));
+        modal?.addEventListener("click", event => {
+            if (event.target === modal) finish(false);
+        });
+        document.addEventListener("keydown", handleKeydown);
+        confirmButton?.focus();
+
+    });
+
+}
+
+
+
+/* ==========================================================
+   IMAGE POPUP
+========================================================== */
+
+function openImage(src){
+
+    if(!src){
+
+        return;
+
+    }
+
+    window.open(
+
+        src,
+
+        "_blank"
+
+    );
+
+}
+
+
+
+/* ==========================================================
+   COPY TEXT
+========================================================== */
+
+async function copyText(text){
+
+    try{
+
+        await navigator.clipboard.writeText(text);
+
+        showToast(
+
+            "Copied",
+
+            "success"
+
+        );
+
+    }
+
+    catch(error){
+
+        console.error(error);
+
+    }
+
+}
+
+
+
+/* ==========================================================
+   REFRESH BUTTONS
+========================================================== */
+
+$("#btnRefreshDashboard")
+
+?.addEventListener(
+
+    "click",
+
+    loadRiderDashboard
+
+);
+
+
+
+$("#btnRefreshMySubmissions")
+
+?.addEventListener(
+
+    "click",
+
+    loadMySubmission
+
+);
+
+
+
+$("#btnRefreshPending")
+
+?.addEventListener(
+
+    "click",
+
+    loadPendingRequest
+
+);
+
+
+
+$("#btnRefreshAdminDashboard")
+
+?.addEventListener(
+
+    "click",
+
+    loadAdminDashboard
+
+);
+
+
+
+$("#btnRefreshNotifications")
+
+?.addEventListener(
+
+    "click",
+
+    loadNotifications
+
+);
+
+
+
+/* ==========================================================
+   SEARCH EVENTS
+========================================================== */
+
+$("#txtSearchSubmission")
+
+?.addEventListener(
+
+    "keyup",
+
+    ()=>{
+
+        filterTable(
+
+            "txtSearchSubmission",
+
+            "mySubmissionTableBody"
+
+        );
+
+    }
+
+);
+
+
+
+$("#txtPendingSearch")
+
+?.addEventListener(
+
+    "input",
+
+    applyPendingFilters
+
+);
+
+
+
+$("#ddlPendingZone")
+
+?.addEventListener(
+
+    "change",
+
+    ()=>{
+
+        populatePendingLocationFilters();
+
+        applyPendingFilters();
+
+    }
+
+);
+
+
+
+$("#ddlPendingWarehouse")
+
+?.addEventListener(
+
+    "change",
+
+    ()=>{
+
+        populatePendingLocationFilters();
+
+        applyPendingFilters();
+
+    }
+
+);
+
+
+
+$("#ddlPendingHub")
+
+?.addEventListener(
+
+    "change",
+
+    applyPendingFilters
+
+);
+
+
+
+$("#txtRepositorySearch")
+
+?.addEventListener(
+
+    "keypress",
+
+    function(event){
+
+        if(event.key==="Enter"){
+
+            searchRepository();
+
+        }
+
+    }
+
+);
+/* ==========================================================
+   QUICK ACTIONS
+========================================================== */
+
+$("#quickNewSubmission")
+
+?.addEventListener(
+
+    "click",
+
+    ()=>{
+
+        navigate(
+
+            "riderSubmission"
+
+        );
+
+    }
+
+);
+
+
+
+$("#quickMySubmissions")
+
+?.addEventListener(
+
+    "click",
+
+    ()=>{
+
+        navigate(
+
+            "mySubmission"
+
+        );
+
+    }
+
+);
+
+
+
+$("#quickPending")
+
+?.addEventListener(
+
+    "click",
+
+    ()=>{
+
+        navigate(
+
+            "pendingRequest"
+
+        );
+
+    }
+
+);
+
+
+
+$("#quickRepository")
+
+?.addEventListener(
+
+    "click",
+
+    ()=>{
+
+        navigate(
+
+            "adminRepository"
+
+        );
+
+    }
+
+);
+
+
+
+/* ==========================================================
+   WINDOW ERROR
+========================================================== */
+
+window.addEventListener(
+
+    "error",
+
+    function(event){
+
+        console.error(event.error);
+
+    }
+
+);
+
+
+
+/* ==========================================================
+   UNHANDLED PROMISE
+========================================================== */
+
+window.addEventListener(
+
+    "unhandledrejection",
+
+    function(event){
+
+        console.error(
+
+            event.reason
+
+        );
+
+    }
+
+);
+
+
+/* ==========================================================
+   END OF JAVASCRIPT
+========================================================== */
+
+</script>
+
+<script>
+/* ==========================================================
+   CONFIGURATION-DRIVEN BRANDING AND CSR CALLING WORKFLOW
+========================================================== */
+
+/*
+ * Built-in UI language dictionary.  It deliberately contains only portal
+ * labels, buttons, headings and messages.  Submission data, reasons, names,
+ * statuses and all values saved in Google Sheets always remain in English.
+ */
+const UI_DICTIONARIES = {
+    en: {},
+    hi: {
+        "Dashboard":"डैशबोर्ड", "New Submission":"नया अनुरोध", "My Submissions":"मेरे अनुरोध", "Pending Requests":"लंबित अनुरोध", "Review Requests":"समीक्षा अनुरोध", "Admin Dashboard":"एडमिन डैशबोर्ड", "Repository":"रिपॉजिटरी", "CSR Dashboard":"सीएसआर डैशबोर्ड", "My Calling Queue":"मेरी कॉलिंग सूची", "CSR Pending & Assign":"सीएसआर लंबित और असाइन", "CSR Repository":"सीएसआर रिपॉजिटरी", "Notifications":"सूचनाएं", "Settings":"सेटिंग्स", "Logout":"लॉग आउट", "Refresh":"रीफ़्रेश", "Search":"खोजें", "Status":"स्थिति", "Pending":"लंबित", "Under Review":"समीक्षा में", "Approved":"स्वीकृत", "Rejected":"अस्वीकृत", "Total":"कुल", "Recent Requests":"हाल के अनुरोध", "Recent Notifications":"हाल की सूचनाएं", "Quick Actions":"त्वरित कार्य", "No records found.":"कोई रिकॉर्ड नहीं मिला।", "No Records Found":"कोई रिकॉर्ड नहीं मिला", "No Notifications":"कोई सूचना नहीं", "No notifications":"कोई सूचना नहीं", "You're all caught up.":"आप सभी सूचनाओं से अपडेट हैं।", "View":"देखें", "Profile Information":"प्रोफ़ाइल जानकारी", "Username":"उपयोगकर्ता नाम", "Rider Name":"राइडर नाम", "Employee ID":"कर्मचारी आईडी", "Role":"भूमिका", "Zone":"क्षेत्र", "Warehouse":"वेयरहाउस", "LM Hub":"एलएम हब", "Appearance":"रूप-रंग", "Dark mode":"डार्क मोड", "Language":"भाषा", "Display language":"प्रदर्शन भाषा", "Change Password":"पासवर्ड बदलें", "Current Password":"वर्तमान पासवर्ड", "New Password":"नया पासवर्ड", "Confirm Password":"पासवर्ड की पुष्टि करें", "Submit Request":"अनुरोध जमा करें", "Reset":"रीसेट", "Order Number":"ऑर्डर नंबर", "Reason":"कारण", "Action":"कार्रवाई", "Assigned To":"असाइन किया गया", "Submitted On":"जमा किया गया", "Reviewed On":"समीक्षा की गई", "Select Reason":"कारण चुनें", "Enter Order Number":"ऑर्डर नंबर दर्ज करें", "All":"सभी", "Back":"वापस", "Cancel":"रद्द करें", "Save":"सहेजें", "Close":"बंद करें"
+    },
+    bn: {
+        "Dashboard":"ড্যাশবোর্ড", "New Submission":"নতুন অনুরোধ", "My Submissions":"আমার অনুরোধসমূহ", "Pending Requests":"মুলতুবি অনুরোধ", "Review Requests":"পর্যালোচনা অনুরোধ", "Admin Dashboard":"অ্যাডমিন ড্যাশবোর্ড", "Repository":"রিপোজিটরি", "CSR Dashboard":"সিএসআর ড্যাশবোর্ড", "My Calling Queue":"আমার কলিং তালিকা", "CSR Pending & Assign":"সিএসআর মুলতুবি ও বরাদ্দ", "CSR Repository":"সিএসআর রিপোজিটরি", "Notifications":"বিজ্ঞপ্তি", "Settings":"সেটিংস", "Logout":"লগ আউট", "Refresh":"রিফ্রেশ", "Search":"অনুসন্ধান", "Status":"স্থিতি", "Pending":"মুলতুবি", "Under Review":"পর্যালোচনাধীন", "Approved":"অনুমোদিত", "Rejected":"প্রত্যাখ্যাত", "Total":"মোট", "Recent Requests":"সাম্প্রতিক অনুরোধ", "Recent Notifications":"সাম্প্রতিক বিজ্ঞপ্তি", "Quick Actions":"দ্রুত কার্যক্রম", "No records found.":"কোনও রেকর্ড পাওয়া যায়নি।", "No Records Found":"কোনও রেকর্ড পাওয়া যায়নি", "No Notifications":"কোনও বিজ্ঞপ্তি নেই", "No notifications":"কোনও বিজ্ঞপ্তি নেই", "You're all caught up.":"আপনি সব বিজ্ঞপ্তি দেখেছেন।", "View":"দেখুন", "Profile Information":"প্রোফাইল তথ্য", "Username":"ব্যবহারকারীর নাম", "Rider Name":"রাইডারের নাম", "Employee ID":"কর্মী আইডি", "Role":"ভূমিকা", "Zone":"অঞ্চল", "Warehouse":"গুদাম", "LM Hub":"এলএম হাব", "Appearance":"চেহারা", "Dark mode":"ডার্ক মোড", "Language":"ভাষা", "Display language":"প্রদর্শনের ভাষা", "Change Password":"পাসওয়ার্ড পরিবর্তন", "Current Password":"বর্তমান পাসওয়ার্ড", "New Password":"নতুন পাসওয়ার্ড", "Confirm Password":"পাসওয়ার্ড নিশ্চিত করুন", "Submit Request":"অনুরোধ জমা দিন", "Reset":"রিসেট", "Order Number":"অর্ডার নম্বর", "Reason":"কারণ", "Action":"কার্যক্রম", "Assigned To":"বরাদ্দ করা হয়েছে", "Submitted On":"জমা দেওয়া হয়েছে", "Reviewed On":"পর্যালোচনা করা হয়েছে", "Select Reason":"কারণ নির্বাচন করুন", "Enter Order Number":"অর্ডার নম্বর লিখুন", "All":"সব", "Back":"ফিরে যান", "Cancel":"বাতিল", "Save":"সংরক্ষণ", "Close":"বন্ধ করুন"
+    },
+    gu: {
+        "Dashboard":"ડેશબોર્ડ", "New Submission":"નવી વિનંતી", "My Submissions":"મારી વિનંતીઓ", "Pending Requests":"બાકી વિનંતીઓ", "Review Requests":"સમીક્ષા વિનંતીઓ", "Admin Dashboard":"એડમિન ડેશબોર્ડ", "Repository":"રિપોઝિટરી", "CSR Dashboard":"CSR ડેશબોર્ડ", "My Calling Queue":"મારી કૉલિંગ કતાર", "CSR Pending & Assign":"CSR બાકી અને સોંપણી", "CSR Repository":"CSR રિપોઝિટરી", "Notifications":"સૂચનાઓ", "Settings":"સેટિંગ્સ", "Logout":"લૉગ આઉટ", "Refresh":"રિફ્રેશ", "Search":"શોધો", "Status":"સ્થિતિ", "Pending":"બાકી", "Under Review":"સમીક્ષા હેઠળ", "Approved":"મંજૂર", "Rejected":"નકારેલ", "Total":"કુલ", "Recent Requests":"તાજેતરની વિનંતીઓ", "Recent Notifications":"તાજેતરની સૂચનાઓ", "Quick Actions":"ઝડપી ક્રિયાઓ", "No records found.":"કોઈ રેકોર્ડ મળ્યો નથી.", "No Records Found":"કોઈ રેકોર્ડ મળ્યો નથી", "No Notifications":"કોઈ સૂચનાઓ નથી", "No notifications":"કોઈ સૂચનાઓ નથી", "You're all caught up.":"તમે તમામ સૂચનાઓ જોઈ લીધી છે.", "View":"જુઓ", "Profile Information":"પ્રોફાઇલ માહિતી", "Username":"વપરાશકર્તા નામ", "Rider Name":"રાઇડરનું નામ", "Employee ID":"કર્મચારી આઈડી", "Role":"ભૂમિકા", "Zone":"ઝોન", "Warehouse":"વેરહાઉસ", "LM Hub":"LM હબ", "Appearance":"દેખાવ", "Dark mode":"ડાર્ક મોડ", "Language":"ભાષા", "Display language":"પ્રદર્શન ભાષા", "Change Password":"પાસવર્ડ બદલો", "Current Password":"વર્તમાન પાસવર્ડ", "New Password":"નવો પાસવર્ડ", "Confirm Password":"પાસવર્ડની પુષ્ટિ કરો", "Submit Request":"વિનંતી સબમિટ કરો", "Reset":"રીસેટ", "Order Number":"ઓર્ડર નંબર", "Reason":"કારણ", "Action":"ક્રિયા", "Assigned To":"સોંપેલ", "Submitted On":"સબમિટ કરેલ", "Reviewed On":"સમીક્ષા કરેલ", "Select Reason":"કારણ પસંદ કરો", "Enter Order Number":"ઓર્ડર નંબર દાખલ કરો", "All":"બધા", "Back":"પાછળ", "Cancel":"રદ કરો", "Save":"સાચવો", "Close":"બંધ કરો"
+    },
+    kn: {
+        "Dashboard":"ಡ್ಯಾಶ್‌ಬೋರ್ಡ್", "New Submission":"ಹೊಸ ವಿನಂತಿ", "My Submissions":"ನನ್ನ ವಿನಂತಿಗಳು", "Pending Requests":"ಬಾಕಿ ವಿನಂತಿಗಳು", "Review Requests":"ಪರಿಶೀಲನೆ ವಿನಂತಿಗಳು", "Admin Dashboard":"ನಿರ್ವಾಹಕ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್", "Repository":"ರೆಪೊಸಿಟರಿ", "CSR Dashboard":"CSR ಡ್ಯಾಶ್‌ಬೋರ್ಡ್", "My Calling Queue":"ನನ್ನ ಕರೆ ಪಟ್ಟಿ", "CSR Pending & Assign":"CSR ಬಾಕಿ ಮತ್ತು ನಿಯೋಜನೆ", "CSR Repository":"CSR ರೆಪೊಸಿಟರಿ", "Notifications":"ಅಧಿಸೂಚನೆಗಳು", "Settings":"ಸೆಟ್ಟಿಂಗ್‌ಗಳು", "Logout":"ಲಾಗ್ ಔಟ್", "Refresh":"ರಿಫ್ರೆಶ್", "Search":"ಹುಡುಕಿ", "Status":"ಸ್ಥಿತಿ", "Pending":"ಬಾಕಿ", "Under Review":"ಪರಿಶೀಲನೆಯಲ್ಲಿದೆ", "Approved":"ಅನುಮೋದಿಸಲಾಗಿದೆ", "Rejected":"ತಿರಸ್ಕರಿಸಲಾಗಿದೆ", "Total":"ಒಟ್ಟು", "Recent Requests":"ಇತ್ತೀಚಿನ ವಿನಂತಿಗಳು", "Recent Notifications":"ಇತ್ತೀಚಿನ ಅಧಿಸೂಚನೆಗಳು", "Quick Actions":"ತ್ವರಿತ ಕ್ರಮಗಳು", "No records found.":"ಯಾವುದೇ ದಾಖಲೆಗಳು ಕಂಡುಬಂದಿಲ್ಲ.", "No Records Found":"ಯಾವುದೇ ದಾಖಲೆಗಳು ಕಂಡುಬಂದಿಲ್ಲ", "No Notifications":"ಯಾವುದೇ ಅಧಿಸೂಚನೆಗಳಿಲ್ಲ", "No notifications":"ಯಾವುದೇ ಅಧಿಸೂಚನೆಗಳಿಲ್ಲ", "You're all caught up.":"ನೀವು ಎಲ್ಲ ಅಧಿಸೂಚನೆಗಳನ್ನು ನೋಡಿದ್ದೀರಿ.", "View":"ವೀಕ್ಷಿಸಿ", "Profile Information":"ಪ್ರೊಫೈಲ್ ಮಾಹಿತಿ", "Username":"ಬಳಕೆದಾರ ಹೆಸರು", "Rider Name":"ರೈಡರ್ ಹೆಸರು", "Employee ID":"ಉದ್ಯೋಗಿ ಐಡಿ", "Role":"ಪಾತ್ರ", "Zone":"ವಲಯ", "Warehouse":"ಗೋದಾಮು", "LM Hub":"LM ಹಬ್", "Appearance":"ಗೋಚರತೆ", "Dark mode":"ಡಾರ್ಕ್ ಮೋಡ್", "Language":"ಭಾಷೆ", "Display language":"ಪ್ರದರ್ಶನ ಭಾಷೆ", "Change Password":"ಪಾಸ್‌ವರ್ಡ್ ಬದಲಿಸಿ", "Current Password":"ಪ್ರಸ್ತುತ ಪಾಸ್‌ವರ್ಡ್", "New Password":"ಹೊಸ ಪಾಸ್‌ವರ್ಡ್", "Confirm Password":"ಪಾಸ್‌ವರ್ಡ್ ದೃಢೀಕರಿಸಿ", "Submit Request":"ವಿನಂತಿ ಸಲ್ಲಿಸಿ", "Reset":"ಮರುಹೊಂದಿಸಿ", "Order Number":"ಆರ್ಡರ್ ಸಂಖ್ಯೆ", "Reason":"ಕಾರಣ", "Action":"ಕ್ರಮ", "Assigned To":"ನಿಯೋಜಿಸಲಾಗಿದೆ", "Submitted On":"ಸಲ್ಲಿಸಿದ ದಿನ", "Reviewed On":"ಪರಿಶೀಲಿಸಿದ ದಿನ", "Select Reason":"ಕಾರಣ ಆಯ್ಕೆಮಾಡಿ", "Enter Order Number":"ಆರ್ಡರ್ ಸಂಖ್ಯೆ ನಮೂದಿಸಿ", "All":"ಎಲ್ಲಾ", "Back":"ಹಿಂದೆ", "Cancel":"ರದ್ದು", "Save":"ಉಳಿಸಿ", "Close":"ಮುಚ್ಚಿ"
+    },
+    ml: {
+        "Dashboard":"ഡാഷ്ബോർഡ്", "New Submission":"പുതിയ അഭ്യർത്ഥന", "My Submissions":"എന്റെ അഭ്യർത്ഥനകൾ", "Pending Requests":"തീർപ്പാകാത്ത അഭ്യർത്ഥനകൾ", "Review Requests":"പരിശോധനാ അഭ്യർത്ഥനകൾ", "Admin Dashboard":"അഡ്മിൻ ഡാഷ്ബോർഡ്", "Repository":"റിപ്പോസിറ്ററി", "CSR Dashboard":"CSR ഡാഷ്ബോർഡ്", "My Calling Queue":"എന്റെ കോൾ ക്യൂ", "CSR Pending & Assign":"CSR തീർപ്പാകാത്തതും അസൈൻമെന്റും", "CSR Repository":"CSR റിപ്പോസിറ്ററി", "Notifications":"അറിയിപ്പുകൾ", "Settings":"ക്രമീകരണങ്ങൾ", "Logout":"ലോഗ് ഔട്ട്", "Refresh":"പുതുക്കുക", "Search":"തിരയുക", "Status":"നില", "Pending":"തീർപ്പാകാത്തത്", "Under Review":"പരിശോധനയിൽ", "Approved":"അംഗീകരിച്ചു", "Rejected":"നിരസിച്ചു", "Total":"ആകെ", "Recent Requests":"സമീപകാല അഭ്യർത്ഥനകൾ", "Recent Notifications":"സമീപകാല അറിയിപ്പുകൾ", "Quick Actions":"വേഗത്തിലുള്ള പ്രവർത്തനങ്ങൾ", "No records found.":"രേഖകളൊന്നും കണ്ടെത്തിയില്ല.", "No Records Found":"രേഖകളൊന്നും കണ്ടെത്തിയില്ല", "No Notifications":"അറിയിപ്പുകളൊന്നുമില്ല", "No notifications":"അറിയിപ്പുകളൊന്നുമില്ല", "You're all caught up.":"നിങ്ങൾ എല്ലാ അറിയിപ്പുകളും കണ്ടു.", "View":"കാണുക", "Profile Information":"പ്രൊഫൈൽ വിവരം", "Username":"ഉപയോക്തൃനാമം", "Rider Name":"റൈഡറുടെ പേര്", "Employee ID":"ജീവനക്കാരുടെ ഐഡി", "Role":"പങ്ക്", "Zone":"മേഖല", "Warehouse":"വെയർഹൗസ്", "LM Hub":"LM ഹബ്", "Appearance":"കാഴ്ച", "Dark mode":"ഡാർക്ക് മോഡ്", "Language":"ഭാഷ", "Display language":"പ്രദർശന ഭാഷ", "Change Password":"പാസ്‌വേഡ് മാറ്റുക", "Current Password":"നിലവിലെ പാസ്‌വേഡ്", "New Password":"പുതിയ പാസ്‌വേഡ്", "Confirm Password":"പാസ്‌വേഡ് സ്ഥിരീകരിക്കുക", "Submit Request":"അഭ്യർത്ഥന സമർപ്പിക്കുക", "Reset":"പുനഃസജ്ജമാക്കുക", "Order Number":"ഓർഡർ നമ്പർ", "Reason":"കാരണം", "Action":"പ്രവർത്തനം", "Assigned To":"നിയോഗിച്ചത്", "Submitted On":"സമർപ്പിച്ച തീയതി", "Reviewed On":"പരിശോധിച്ച തീയതി", "Select Reason":"കാരണം തിരഞ്ഞെടുക്കുക", "Enter Order Number":"ഓർഡർ നമ്പർ നൽകുക", "All":"എല്ലാം", "Back":"തിരികെ", "Cancel":"റദ്ദാക്കുക", "Save":"സംരക്ഷിക്കുക", "Close":"അടയ്ക്കുക"
+    },
+    mr: {
+        "Dashboard":"डॅशबोर्ड", "New Submission":"नवीन विनंती", "My Submissions":"माझ्या विनंत्या", "Pending Requests":"प्रलंबित विनंत्या", "Review Requests":"पुनरावलोकन विनंत्या", "Admin Dashboard":"अॅडमिन डॅशबोर्ड", "Repository":"रिपॉझिटरी", "CSR Dashboard":"सीएसआर डॅशबोर्ड", "My Calling Queue":"माझी कॉलिंग रांग", "CSR Pending & Assign":"सीएसआर प्रलंबित व असाइन", "CSR Repository":"सीएसआर रिपॉझिटरी", "Notifications":"सूचना", "Settings":"सेटिंग्ज", "Logout":"लॉग आउट", "Refresh":"रिफ्रेश", "Search":"शोधा", "Status":"स्थिती", "Pending":"प्रलंबित", "Under Review":"पुनरावलोकनाधीन", "Approved":"मंजूर", "Rejected":"नामंजूर", "Total":"एकूण", "Recent Requests":"अलीकडील विनंत्या", "Recent Notifications":"अलीकडील सूचना", "Quick Actions":"जलद कृती", "No records found.":"कोणतीही नोंद आढळली नाही.", "No Records Found":"कोणतीही नोंद आढळली नाही", "No Notifications":"कोणत्याही सूचना नाहीत", "No notifications":"कोणत्याही सूचना नाहीत", "You're all caught up.":"तुम्ही सर्व सूचना पाहिल्या आहेत.", "View":"पहा", "Profile Information":"प्रोफाइल माहिती", "Username":"वापरकर्ता नाव", "Rider Name":"रायडरचे नाव", "Employee ID":"कर्मचारी आयडी", "Role":"भूमिका", "Zone":"क्षेत्र", "Warehouse":"गोदाम", "LM Hub":"एलएम हब", "Appearance":"दृश्य", "Dark mode":"डार्क मोड", "Language":"भाषा", "Display language":"दर्शविण्याची भाषा", "Change Password":"पासवर्ड बदला", "Current Password":"सध्याचा पासवर्ड", "New Password":"नवीन पासवर्ड", "Confirm Password":"पासवर्डची पुष्टी करा", "Submit Request":"विनंती सादर करा", "Reset":"रीसेट", "Order Number":"ऑर्डर क्रमांक", "Reason":"कारण", "Action":"कृती", "Assigned To":"नियुक्त केले", "Submitted On":"सादर दिनांक", "Reviewed On":"पुनरावलोकन दिनांक", "Select Reason":"कारण निवडा", "Enter Order Number":"ऑर्डर क्रमांक भरा", "All":"सर्व", "Back":"मागे", "Cancel":"रद्द करा", "Save":"जतन करा", "Close":"बंद करा"
+    },
+    or: {
+        "Dashboard":"ଡ୍ୟାଶବୋର୍ଡ", "New Submission":"ନୂତନ ଅନୁରୋଧ", "My Submissions":"ମୋର ଅନୁରୋଧ", "Pending Requests":"ବକେୟା ଅନୁରୋଧ", "Review Requests":"ସମୀକ୍ଷା ଅନୁରୋଧ", "Admin Dashboard":"ଆଡମିନ ଡ୍ୟାଶବୋର୍ଡ", "Repository":"ରିପୋଜିଟୋରି", "CSR Dashboard":"CSR ଡ୍ୟାଶବୋର୍ଡ", "My Calling Queue":"ମୋର କଲିଂ ତାଲିକା", "CSR Pending & Assign":"CSR ବକେୟା ଏବଂ ନିଯୁକ୍ତି", "CSR Repository":"CSR ରିପୋଜିଟୋରି", "Notifications":"ବିଜ୍ଞପ୍ତି", "Settings":"ସେଟିଂସ", "Logout":"ଲଗ ଆଉଟ", "Refresh":"ରିଫ୍ରେଶ", "Search":"ଖୋଜନ୍ତୁ", "Status":"ସ୍ଥିତି", "Pending":"ବକେୟା", "Under Review":"ସମୀକ୍ଷାଧୀନ", "Approved":"ଅନୁମୋଦିତ", "Rejected":"ପ୍ରତ୍ୟାଖ୍ୟାନ", "Total":"ମୋଟ", "Recent Requests":"ସମ୍ପ୍ରତି ଅନୁରୋଧ", "Recent Notifications":"ସମ୍ପ୍ରତି ବିଜ୍ଞପ୍ତି", "Quick Actions":"ତ୍ୱରିତ କାର୍ଯ୍ୟ", "No records found.":"କୌଣସି ରେକର୍ଡ ମିଳିଲା ନାହିଁ।", "No Records Found":"କୌଣସି ରେକର୍ଡ ମିଳିଲା ନାହିଁ", "No Notifications":"କୌଣସି ବିଜ୍ଞପ୍ତି ନାହିଁ", "No notifications":"କୌଣସି ବିଜ୍ଞପ୍ତି ନାହିଁ", "You're all caught up.":"ଆପଣ ସମସ୍ତ ବିଜ୍ଞପ୍ତି ଦେଖିଛନ୍ତି।", "View":"ଦେଖନ୍ତୁ", "Profile Information":"ପ୍ରୋଫାଇଲ ସୂଚନା", "Username":"ବ୍ୟବହାରକାରୀ ନାମ", "Rider Name":"ରାଇଡର ନାମ", "Employee ID":"କର୍ମଚାରୀ ଆଇଡି", "Role":"ଭୂମିକା", "Zone":"କ୍ଷେତ୍ର", "Warehouse":"ଗୋଦାମ", "LM Hub":"LM ହବ", "Appearance":"ଦୃଶ୍ୟ", "Dark mode":"ଡାର୍କ ମୋଡ", "Language":"ଭାଷା", "Display language":"ପ୍ରଦର୍ଶନ ଭାଷା", "Change Password":"ପାସୱାର୍ଡ ବଦଳାନ୍ତୁ", "Current Password":"ବର୍ତ୍ତମାନ ପାସୱାର୍ଡ", "New Password":"ନୂତନ ପାସୱାର୍ଡ", "Confirm Password":"ପାସୱାର୍ଡ ନିଶ୍ଚିତ କରନ୍ତୁ", "Submit Request":"ଅନୁରୋଧ ଦାଖଲ କରନ୍ତୁ", "Reset":"ରିସେଟ", "Order Number":"ଅର୍ଡର ନମ୍ବର", "Reason":"କାରଣ", "Action":"କାର୍ଯ୍ୟ", "Assigned To":"ନିଯୁକ୍ତ", "Submitted On":"ଦାଖଲ ତାରିଖ", "Reviewed On":"ସମୀକ୍ଷା ତାରିଖ", "Select Reason":"କାରଣ ଚୟନ କରନ୍ତୁ", "Enter Order Number":"ଅର୍ଡର ନମ୍ବର ଦିଅନ୍ତୁ", "All":"ସମସ୍ତ", "Back":"ପଛକୁ", "Cancel":"ବାତିଲ", "Save":"ସଞ୍ଚୟ", "Close":"ବନ୍ଦ କରନ୍ତୁ"
+    },
+    pa: {
+        "Dashboard":"ਡੈਸ਼ਬੋਰਡ", "New Submission":"ਨਵੀਂ ਬੇਨਤੀ", "My Submissions":"ਮੇਰੀਆਂ ਬੇਨਤੀਆਂ", "Pending Requests":"ਬਕਾਇਆ ਬੇਨਤੀਆਂ", "Review Requests":"ਸਮੀਖਿਆ ਬੇਨਤੀਆਂ", "Admin Dashboard":"ਐਡਮਿਨ ਡੈਸ਼ਬੋਰਡ", "Repository":"ਰਿਪੋਜ਼ਟਰੀ", "CSR Dashboard":"CSR ਡੈਸ਼ਬੋਰਡ", "My Calling Queue":"ਮੇਰੀ ਕਾਲਿੰਗ ਕਤਾਰ", "CSR Pending & Assign":"CSR ਬਕਾਇਆ ਅਤੇ ਅਸਾਈਨ", "CSR Repository":"CSR ਰਿਪੋਜ਼ਟਰੀ", "Notifications":"ਸੂਚਨਾਵਾਂ", "Settings":"ਸੈਟਿੰਗਾਂ", "Logout":"ਲੌਗ ਆਊਟ", "Refresh":"ਰਿਫਰੈਸ਼", "Search":"ਖੋਜੋ", "Status":"ਸਥਿਤੀ", "Pending":"ਬਕਾਇਆ", "Under Review":"ਸਮੀਖਿਆ ਅਧੀਨ", "Approved":"ਮਨਜ਼ੂਰ", "Rejected":"ਰੱਦ", "Total":"ਕੁੱਲ", "Recent Requests":"ਹਾਲੀਆ ਬੇਨਤੀਆਂ", "Recent Notifications":"ਹਾਲੀਆ ਸੂਚਨਾਵਾਂ", "Quick Actions":"ਤੇਜ਼ ਕਾਰਵਾਈਆਂ", "No records found.":"ਕੋਈ ਰਿਕਾਰਡ ਨਹੀਂ ਮਿਲਿਆ।", "No Records Found":"ਕੋਈ ਰਿਕਾਰਡ ਨਹੀਂ ਮਿਲਿਆ", "No Notifications":"ਕੋਈ ਸੂਚਨਾ ਨਹੀਂ", "No notifications":"ਕੋਈ ਸੂਚਨਾ ਨਹੀਂ", "You're all caught up.":"ਤੁਸੀਂ ਸਾਰੀਆਂ ਸੂਚਨਾਵਾਂ ਦੇਖ ਲਈਆਂ ਹਨ।", "View":"ਵੇਖੋ", "Profile Information":"ਪ੍ਰੋਫਾਈਲ ਜਾਣਕਾਰੀ", "Username":"ਯੂਜ਼ਰਨੇਮ", "Rider Name":"ਰਾਈਡਰ ਦਾ ਨਾਮ", "Employee ID":"ਕਰਮਚਾਰੀ ਆਈਡੀ", "Role":"ਭੂਮਿਕਾ", "Zone":"ਖੇਤਰ", "Warehouse":"ਵੇਅਰਹਾਊਸ", "LM Hub":"LM ਹੱਬ", "Appearance":"ਦਿੱਖ", "Dark mode":"ਡਾਰਕ ਮੋਡ", "Language":"ਭਾਸ਼ਾ", "Display language":"ਡਿਸਪਲੇ ਭਾਸ਼ਾ", "Change Password":"ਪਾਸਵਰਡ ਬਦਲੋ", "Current Password":"ਮੌਜੂਦਾ ਪਾਸਵਰਡ", "New Password":"ਨਵਾਂ ਪਾਸਵਰਡ", "Confirm Password":"ਪਾਸਵਰਡ ਦੀ ਪੁਸ਼ਟੀ ਕਰੋ", "Submit Request":"ਬੇਨਤੀ ਜਮ੍ਹਾਂ ਕਰੋ", "Reset":"ਰੀਸੈਟ", "Order Number":"ਆਰਡਰ ਨੰਬਰ", "Reason":"ਕਾਰਨ", "Action":"ਕਾਰਵਾਈ", "Assigned To":"ਅਸਾਈਨ ਕੀਤਾ", "Submitted On":"ਜਮ੍ਹਾਂ ਮਿਤੀ", "Reviewed On":"ਸਮੀਖਿਆ ਮਿਤੀ", "Select Reason":"ਕਾਰਨ ਚੁਣੋ", "Enter Order Number":"ਆਰਡਰ ਨੰਬਰ ਦਾਖਲ ਕਰੋ", "All":"ਸਾਰੇ", "Back":"ਵਾਪਸ", "Cancel":"ਰੱਦ ਕਰੋ", "Save":"ਸੰਭਾਲੋ", "Close":"ਬੰਦ ਕਰੋ"
+    },
+    ta: {
+        "Dashboard":"டாஷ்போர்டு", "New Submission":"புதிய கோரிக்கை", "My Submissions":"எனது கோரிக்கைகள்", "Pending Requests":"நிலுவையிலுள்ள கோரிக்கைகள்", "Review Requests":"மதிப்பாய்வு கோரிக்கைகள்", "Admin Dashboard":"நிர்வாக டாஷ்போர்டு", "Repository":"களஞ்சியம்", "CSR Dashboard":"CSR டாஷ்போர்டு", "My Calling Queue":"எனது அழைப்பு வரிசை", "CSR Pending & Assign":"CSR நிலுவை மற்றும் ஒதுக்கீடு", "CSR Repository":"CSR களஞ்சியம்", "Notifications":"அறிவிப்புகள்", "Settings":"அமைப்புகள்", "Logout":"வெளியேறு", "Refresh":"புதுப்பி", "Search":"தேடு", "Status":"நிலை", "Pending":"நிலுவையில்", "Under Review":"மதிப்பாய்வில்", "Approved":"அங்கீகரிக்கப்பட்டது", "Rejected":"நிராகரிக்கப்பட்டது", "Total":"மொத்தம்", "Recent Requests":"சமீபத்திய கோரிக்கைகள்", "Recent Notifications":"சமீபத்திய அறிவிப்புகள்", "Quick Actions":"விரைவு செயல்கள்", "No records found.":"பதிவுகள் எதுவும் இல்லை.", "No Records Found":"பதிவுகள் எதுவும் இல்லை", "No Notifications":"அறிவிப்புகள் இல்லை", "No notifications":"அறிவிப்புகள் இல்லை", "You're all caught up.":"நீங்கள் அனைத்து அறிவிப்புகளையும் பார்த்துவிட்டீர்கள்.", "View":"பார்", "Profile Information":"சுயவிவர தகவல்", "Username":"பயனர்பெயர்", "Rider Name":"ரைடர் பெயர்", "Employee ID":"பணியாளர் ஐடி", "Role":"பங்கு", "Zone":"மண்டலம்", "Warehouse":"கிடங்கு", "LM Hub":"LM ஹப்", "Appearance":"தோற்றம்", "Dark mode":"டார்க் மோட்", "Language":"மொழி", "Display language":"காட்சி மொழி", "Change Password":"கடவுச்சொல்லை மாற்று", "Current Password":"தற்போதைய கடவுச்சொல்", "New Password":"புதிய கடவுச்சொல்", "Confirm Password":"கடவுச்சொல்லை உறுதிப்படுத்து", "Submit Request":"கோரிக்கையை சமர்ப்பி", "Reset":"மீட்டமை", "Order Number":"ஆர்டர் எண்", "Reason":"காரணம்", "Action":"செயல்", "Assigned To":"ஒதுக்கப்பட்டது", "Submitted On":"சமர்ப்பித்த தேதி", "Reviewed On":"மதிப்பாய்வு தேதி", "Select Reason":"காரணத்தைத் தேர்ந்தெடுக்கவும்", "Enter Order Number":"ஆர்டர் எண்ணை உள்ளிடவும்", "All":"அனைத்தும்", "Back":"பின்", "Cancel":"ரத்து", "Save":"சேமி", "Close":"மூடு"
+    },
+    te: {
+        "Dashboard":"డాష్‌బోర్డ్", "New Submission":"కొత్త అభ్యర్థన", "My Submissions":"నా అభ్యర్థనలు", "Pending Requests":"పెండింగ్ అభ్యర్థనలు", "Review Requests":"సమీక్ష అభ్యర్థనలు", "Admin Dashboard":"అడ్మిన్ డాష్‌బోర్డ్", "Repository":"రిపోజిటరీ", "CSR Dashboard":"CSR డాష్‌బోర్డ్", "My Calling Queue":"నా కాలింగ్ క్యూ", "CSR Pending & Assign":"CSR పెండింగ్ మరియు అసైన్", "CSR Repository":"CSR రిపోజిటరీ", "Notifications":"నోటిఫికేషన్లు", "Settings":"సెట్టింగ్‌లు", "Logout":"లాగ్ అవుట్", "Refresh":"రిఫ్రెష్", "Search":"శోధించండి", "Status":"స్థితి", "Pending":"పెండింగ్", "Under Review":"సమీక్షలో ఉంది", "Approved":"ఆమోదించబడింది", "Rejected":"తిరస్కరించబడింది", "Total":"మొత్తం", "Recent Requests":"ఇటీవలి అభ్యర్థనలు", "Recent Notifications":"ఇటీవలి నోటిఫికేషన్లు", "Quick Actions":"త్వరిత చర్యలు", "No records found.":"రికార్డులు కనుగొనబడలేదు.", "No Records Found":"రికార్డులు కనుగొనబడలేదు", "No Notifications":"నోటిఫికేషన్లు లేవు", "No notifications":"నోటిఫికేషన్లు లేవు", "You're all caught up.":"మీరు అన్ని నోటిఫికేషన్లు చూసారు.", "View":"చూడండి", "Profile Information":"ప్రొఫైల్ సమాచారం", "Username":"వినియోగదారు పేరు", "Rider Name":"రైడర్ పేరు", "Employee ID":"ఉద్యోగి ఐడి", "Role":"పాత్ర", "Zone":"జోన్", "Warehouse":"వేర్‌హౌస్", "LM Hub":"LM హబ్", "Appearance":"రూపం", "Dark mode":"డార్క్ మోడ్", "Language":"భాష", "Display language":"ప్రదర్శన భాష", "Change Password":"పాస్‌వర్డ్ మార్చండి", "Current Password":"ప్రస్తుత పాస్‌వర్డ్", "New Password":"కొత్త పాస్‌వర్డ్", "Confirm Password":"పాస్‌వర్డ్ నిర్ధారించండి", "Submit Request":"అభ్యర్థన సమర్పించండి", "Reset":"రీసెట్", "Order Number":"ఆర్డర్ నంబర్", "Reason":"కారణం", "Action":"చర్య", "Assigned To":"అసైన్ చేయబడింది", "Submitted On":"సమర్పించిన తేదీ", "Reviewed On":"సమీక్షించిన తేదీ", "Select Reason":"కారణాన్ని ఎంచుకోండి", "Enter Order Number":"ఆర్డర్ నంబర్ నమోదు చేయండి", "All":"అన్నీ", "Back":"వెనుకకు", "Cancel":"రద్దు", "Save":"సేవ్", "Close":"మూసివేయి"
+    },
+    ur: {
+        "Dashboard":"ڈیش بورڈ", "New Submission":"نئی درخواست", "My Submissions":"میری درخواستیں", "Pending Requests":"زیر التوا درخواستیں", "Review Requests":"جائزہ درخواستیں", "Admin Dashboard":"ایڈمن ڈیش بورڈ", "Repository":"ریپوزٹری", "CSR Dashboard":"سی ایس آر ڈیش بورڈ", "My Calling Queue":"میری کالنگ قطار", "CSR Pending & Assign":"سی ایس آر زیر التوا اور تفویض", "CSR Repository":"سی ایس آر ریپوزٹری", "Notifications":"اطلاعات", "Settings":"ترتیبات", "Logout":"لاگ آؤٹ", "Refresh":"ریفریش", "Search":"تلاش", "Status":"حیثیت", "Pending":"زیر التوا", "Under Review":"جائزہ کے تحت", "Approved":"منظور شدہ", "Rejected":"مسترد", "Total":"کل", "Recent Requests":"حالیہ درخواستیں", "Recent Notifications":"حالیہ اطلاعات", "Quick Actions":"فوری اقدامات", "No records found.":"کوئی ریکارڈ نہیں ملا۔", "No Records Found":"کوئی ریکارڈ نہیں ملا", "No Notifications":"کوئی اطلاع نہیں", "No notifications":"کوئی اطلاع نہیں", "You're all caught up.":"آپ نے تمام اطلاعات دیکھ لی ہیں۔", "View":"دیکھیں", "Profile Information":"پروفائل کی معلومات", "Username":"صارف نام", "Rider Name":"رائیڈر کا نام", "Employee ID":"ملازم آئی ڈی", "Role":"کردار", "Zone":"زون", "Warehouse":"ویئرہاؤس", "LM Hub":"LM ہب", "Appearance":"ظاہری شکل", "Dark mode":"ڈارک موڈ", "Language":"زبان", "Display language":"نمائش کی زبان", "Change Password":"پاس ورڈ تبدیل کریں", "Current Password":"موجودہ پاس ورڈ", "New Password":"نیا پاس ورڈ", "Confirm Password":"پاس ورڈ کی تصدیق کریں", "Submit Request":"درخواست جمع کریں", "Reset":"ری سیٹ", "Order Number":"آرڈر نمبر", "Reason":"وجہ", "Action":"عمل", "Assigned To":"تفویض کردہ", "Submitted On":"جمع کرانے کی تاریخ", "Reviewed On":"جائزہ کی تاریخ", "Select Reason":"وجہ منتخب کریں", "Enter Order Number":"آرڈر نمبر درج کریں", "All":"سب", "Back":"واپس", "Cancel":"منسوخ", "Save":"محفوظ کریں", "Close":"بند کریں"
+    }
+};
+
+const UI_LANGUAGE_META = {
+    en: { locale: "en", direction: "ltr" }, hi: { locale: "hi", direction: "ltr" },
+    bn: { locale: "bn", direction: "ltr" }, gu: { locale: "gu", direction: "ltr" },
+    kn: { locale: "kn", direction: "ltr" }, ml: { locale: "ml", direction: "ltr" },
+    mr: { locale: "mr", direction: "ltr" }, or: { locale: "or", direction: "ltr" },
+    pa: { locale: "pa", direction: "ltr" }, ta: { locale: "ta", direction: "ltr" },
+    te: { locale: "te", direction: "ltr" }, ur: { locale: "ur", direction: "rtl" }
+};
+
+const UI_TEXT_ORIGINALS = new WeakMap();
+const UI_ATTRIBUTE_ORIGINALS = new WeakMap();
+let uiLanguageObserver = null;
+
+function uiLanguageStorageKey() {
+    const username = String(APP.user?.username || "guest").trim().toLowerCase() || "guest";
+    return "ownFleetUiLanguage:" + username;
+}
+
+function translateUiText(text) {
+    const source = String(text || "");
+    const dictionary = UI_DICTIONARIES[APP.uiLanguage || "en"] || {};
+    return Object.prototype.hasOwnProperty.call(dictionary, source) ? dictionary[source] : source;
+}
+
+function localiseTextNode(node) {
+    if (!node || !node.parentElement || node.parentElement.closest("script, style, textarea, option, .status-badge, [data-record-value], [data-i18n-ignore]")) return;
+    const original = UI_TEXT_ORIGINALS.has(node) ? UI_TEXT_ORIGINALS.get(node) : node.nodeValue;
+    UI_TEXT_ORIGINALS.set(node, original);
+    const leading = (original.match(/^\s*/) || [""])[0];
+    const trailing = (original.match(/\s*$/) || [""])[0];
+    const value = original.trim();
+    if (!value) return;
+    node.nodeValue = leading + translateUiText(value) + trailing;
+}
+
+function localiseAttributes(element) {
+    if (!element || element.closest?.(".status-badge, [data-record-value], [data-i18n-ignore]")) return;
+    ["placeholder", "aria-label"].forEach(attribute => {
+        if (!element.hasAttribute(attribute)) return;
+        let originals = UI_ATTRIBUTE_ORIGINALS.get(element);
+        if (!originals) {
+            originals = {};
+            UI_ATTRIBUTE_ORIGINALS.set(element, originals);
+        }
+        if (!Object.prototype.hasOwnProperty.call(originals, attribute)) originals[attribute] = element.getAttribute(attribute);
+        element.setAttribute(attribute, translateUiText(originals[attribute]));
+    });
+}
+
+function localiseTree(root) {
+    if (!root) return;
+    if (root.nodeType === Node.TEXT_NODE) {
+        localiseTextNode(root);
+        return;
+    }
+    if (root.nodeType !== Node.ELEMENT_NODE && root.nodeType !== Node.DOCUMENT_NODE) return;
+    if (root.nodeType === Node.ELEMENT_NODE) localiseAttributes(root);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(localiseTextNode);
+    root.querySelectorAll?.("[placeholder], [aria-label]").forEach(localiseAttributes);
+}
+
+function observeUiLanguageChanges() {
+    if (uiLanguageObserver || !document.body) return;
+    uiLanguageObserver = new MutationObserver(mutations => {
+        mutations.forEach(mutation => mutation.addedNodes.forEach(localiseTree));
+    });
+    uiLanguageObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+function setUiLanguage(language, persist) {
+    const code = Object.prototype.hasOwnProperty.call(UI_DICTIONARIES, language) ? language : "en";
+    APP.uiLanguage = code;
+    const meta = UI_LANGUAGE_META[code] || UI_LANGUAGE_META.en;
+    document.documentElement.lang = meta.locale;
+    /* Keep the app shell stable on every screen size.  Urdu text itself is
+       right-aligned, but the navigation/sidebar layout remains unchanged. */
+    document.documentElement.dir = "ltr";
+    document.body?.classList.toggle("ui-rtl", meta.direction === "rtl");
+    localiseTree(document.body);
+    observeUiLanguageChanges();
+    const select = $("ddlUiLanguage");
+    if (select) select.value = code;
+    if (persist) localStorage.setItem(uiLanguageStorageKey(), code);
+}
+
+function initialiseLanguageSettings() {
+    const enabled = !!APP.configuration?.translationEnabled;
+    const card = $("languageSettingsCard");
+    if (card) card.classList.toggle("hidden", !enabled);
+    setUiLanguage(enabled ? (localStorage.getItem(uiLanguageStorageKey()) || "en") : "en", false);
+}
+
+function loadUserUiLanguagePreference() {
+    if (!APP.configuration?.translationEnabled) return;
+    setUiLanguage(localStorage.getItem(uiLanguageStorageKey()) || "en", false);
+}
+
+function applyAppBranding() {
+
+    const config = window.APP_BOOT_CONFIG || {};
+    APP.configuration = config;
+
+    document.querySelectorAll("[data-app-name]").forEach(element => {
+        element.textContent = config.name || "";
+    });
+    document.querySelectorAll("[data-app-company]").forEach(element => {
+        element.textContent = config.company || "";
+    });
+    document.querySelectorAll("[data-app-version]").forEach(element => {
+        element.textContent = config.version ? "Version " + config.version : "";
+    });
+    document.querySelectorAll("[data-app-logo]").forEach(image => {
+        if (config.logoUrl) image.src = config.logoUrl;
+    });
+
+    if (config.name) document.title = config.name;
+    if (config.themeColor) {
+        document.querySelector('meta[name="theme-color"]')?.setAttribute("content", config.themeColor);
+    }
+
+    initialiseAppearanceSettings();
+    initialiseLanguageSettings();
+}
+
+/* Appearance preferences are browser-only. They never alter application
+   records or the language/content stored in Google Sheets. */
+function setDarkMode(enabled) {
+    const enabledByConfiguration = !!APP.configuration?.darkModeEnabled;
+    const active = enabledByConfiguration && !!enabled;
+
+    document.body.classList.toggle("dark-mode", active);
+
+    if (enabledByConfiguration)
+        localStorage.setItem("ownFleetDarkMode", active ? "yes" : "no");
+
+    const toggle = $("toggleDarkMode");
+    if (toggle) toggle.checked = active;
+}
+
+function initialiseAppearanceSettings() {
+    const enabled = !!APP.configuration?.darkModeEnabled;
+    const card = $("appearanceSettingsCard");
+
+    if (card) card.classList.toggle("hidden", !enabled);
+    if (!enabled) {
+        document.body.classList.remove("dark-mode");
+        return;
+    }
+
+    setDarkMode(localStorage.getItem("ownFleetDarkMode") === "yes");
+}
+
+function isCsrUser() {
+    return String(APP.user?.access || "").trim().toUpperCase() === "CSR";
+}
+
+function isCsrAdmin() {
+    return isCsrUser() && ["ADMIN", "SUPER_ADMIN"].includes(normaliseRole(APP.user?.role));
+}
+
+function isCsrCallingAgent() {
+    return isCsrUser() && normaliseRole(APP.user?.role) === "CALLING_AGENT";
+}
+
+function csrMyName() {
+    return String(APP.user?.name || APP.user?.riderName || APP.user?.username || "").trim();
+}
+
+function setCsrSelectOptions(id, values, allLabel) {
+    const select = $(id);
+    if (!select) return;
+    const selected = select.value;
+    const unique = [...new Set((values || []).map(value => String(value || "").trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b));
+    select.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>` +
+        unique.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+    if (unique.includes(selected)) select.value = selected;
+}
+
+function initializeCsrEvents() {
+    $("btnRefreshCsrDashboard")?.addEventListener("click", loadCsrDashboard);
+    $("btnRefreshCsrQueue")?.addEventListener("click", loadCsrQueue);
+    $("btnSyncCsrTickets")?.addEventListener("click", syncCsrTickets);
+    $("btnRefreshCsrRepository")?.addEventListener("click", loadCsrRepository);
+    $("btnBackToCsrQueue")?.addEventListener("click", () => navigate("csrPending"));
+    $("btnClaimCsrAdminReview")?.addEventListener("click", claimCsrAdminReview);
+    $("btnAssignCsrTickets")?.addEventListener("click", assignSelectedCsrTickets);
+    $("chkCsrSelectAll")?.addEventListener("change", event => {
+        document.querySelectorAll(".csr-ticket-check").forEach(box => { box.checked = event.target.checked; });
+    });
+
+    ["txtCsrSearch", "ddlCsrZone", "ddlCsrWarehouse", "ddlCsrHub", "ddlCsrFinalStatus", "dtCsrCreatedFrom", "dtCsrCreatedTo"]
+        .forEach(id => $(id)?.addEventListener(id === "txtCsrSearch" ? "input" : "change", debounce(loadCsrQueue, 250)));
+    ["txtCsrRepositorySearch", "ddlCsrRepositoryStatus", "dtCsrRepositoryCreatedFrom", "dtCsrRepositoryCreatedTo"]
+        .forEach(id => $(id)?.addEventListener(id === "txtCsrRepositorySearch" ? "input" : "change", debounce(loadCsrRepository, 250)));
+}
+
+async function syncCsrTickets() {
+
+    if (!isCsrAdmin()) return;
+
+    const confirmed = await confirmAction({
+        title: "Sync NDR tickets?",
+        message: "This will find approved submissions marked Push For NDR Calling and create only missing CSR tickets. Existing tickets will not be changed.",
+        confirmText: "Sync Tickets"
+    });
+
+    if (!confirmed) return;
+
+    try {
+        showLoader(
+            "Syncing CSR tickets",
+            "Checking approved NDR submissions and safely creating only missing tickets."
+        );
+
+        const response = await server("syncCsrTickets");
+
+        if (!response.success)
+            throw new Error(response.message || "Could not sync CSR tickets.");
+
+        showToast(response.message, "success");
+        await loadCsrQueue();
+    } catch (error) {
+        showToast(error.message || "Could not sync CSR tickets.", "error");
+    } finally {
+        hideLoader();
+    }
+
+}
+
+function debounce(fn, wait) {
+    let timer;
+    return function () {
+        clearTimeout(timer);
+        timer = setTimeout(fn, wait);
+    };
+}
+
+async function ensureCsrReferenceData() {
+    if (!isCsrUser()) return;
+
+    const [locationsResult, agentsResult, reasonsResult, outcomesResult] = await Promise.all([
+        server("csrLocationOptions"),
+        isCsrAdmin() ? server("csrCallingAgents") : Promise.resolve({ success: true, data: [] }),
+        isCsrCallingAgent() ? server("csrReasons") : Promise.resolve({ success: true, data: [] }),
+        isCsrCallingAgent() ? server("csrClosingOutcomes") : Promise.resolve({ success: true, data: [] })
+    ]);
+
+    if (locationsResult.success) {
+        APP.csr.locations = locationsResult.data || [];
+        setCsrSelectOptions("ddlCsrZone", APP.csr.locations.map(row => row.zone), "All Zones");
+        setCsrSelectOptions("ddlCsrWarehouse", APP.csr.locations.map(row => row.warehouse), "All Warehouses");
+        setCsrSelectOptions("ddlCsrHub", APP.csr.locations.map(row => row.lmHub), "All LM Hubs");
+    }
+    if (agentsResult.success) {
+        APP.csr.agents = agentsResult.data || [];
+        const select = $("ddlCsrCallingAgent");
+        if (select) {
+            select.innerHTML = '<option value="">Select Calling Agent</option>' + APP.csr.agents.map(agent =>
+                `<option value="${escapeHtml(agent.username)}">${escapeHtml(agent.name)} — ${escapeHtml(agent.zone || "All locations")}</option>`
+            ).join("");
+        }
+    }
+    if (reasonsResult.success) APP.csr.reasons = reasonsResult.data || [];
+    if (outcomesResult.success) APP.csr.closingOutcomes = outcomesResult.data || [];
+}
+
+function csrFilters(prefix) {
+    if (prefix === "repository") {
+        return {
+            search: $("txtCsrRepositorySearch")?.value.trim() || "",
+            status: $("ddlCsrRepositoryStatus")?.value || "",
+            startDate: $("dtCsrRepositoryCreatedFrom")?.value || "",
+            endDate: $("dtCsrRepositoryCreatedTo")?.value || ""
+        };
+    }
+    return {
+        search: $("txtCsrSearch")?.value.trim() || "",
+        zone: $("ddlCsrZone")?.value || "",
+        warehouse: $("ddlCsrWarehouse")?.value || "",
+        lmHub: $("ddlCsrHub")?.value || "",
+        status: $("ddlCsrFinalStatus")?.value || "",
+        startDate: $("dtCsrCreatedFrom")?.value || "",
+        endDate: $("dtCsrCreatedTo")?.value || ""
+    };
+}
+
+async function loadCsrDashboard() {
+    if (!isCsrUser()) return;
+    try {
+        await ensureCsrReferenceData();
+        const response = await server("csrDashboard");
+        if (!response.success) throw new Error(response.message);
+        const data = response.data || {};
+        $("csrMetricOpen").textContent = data.open || 0;
+        $("csrMetricUnassigned").textContent = data.unassigned || 0;
+        $("csrMetricAssigned").textContent = (data.assigned || 0) + (data.inReview ? " / " + data.inReview : "");
+        $("csrMetricClosed").textContent = data.closed || 0;
+        $("csrMetricCalls").textContent = data.callsDone || 0;
+        $("csrMetricAverageResolution").textContent = data.averageResolutionTime || "-";
+        $("csrMetricMyRank").textContent = data.myRank ? "#" + data.myRank : "-";
+        renderCsrDashboardWork(data.recent || []);
+        renderCsrAgentPerformance(data.agentRows || []);
+    } catch (error) {
+        showToast(error.message || "Unable to load the CSR dashboard.", "error");
+    }
+}
+
+function renderCsrDashboardWork(tickets) {
+    const body = $("csrDashboardWorkBody");
+    if (!body) return;
+    const visible = isCsrAdmin() ? tickets : tickets.filter(ticket => ticket.currentAssignedAgent === csrMyName());
+    body.innerHTML = visible.length ? visible.map(ticket => `<tr>
+        <td>${escapeHtml(ticket.ticketId)}</td><td>${escapeHtml(ticket.orderNumber)}</td><td>${escapeHtml(ticket.riderName)}</td>
+        <td>${escapeHtml(ticket.zone)}</td><td>${escapeHtml(ticket.lmHub)}</td><td>${statusBadge(ticket.currentStatus)}</td><td>${escapeHtml(ticket.lastActivityAt || "-")}</td>
+    </tr>`).join("") : '<tr><td colspan="7">No active work.</td></tr>';
+}
+
+function renderCsrAgentPerformance(rows) {
+    const body = $("csrAgentPerformanceBody");
+    if (!body) return;
+    body.innerHTML = rows.length ? rows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td class="center">${escapeHtml(row.openWork)}</td><td class="center">${escapeHtml(row.completedCalls)}</td><td class="center">${escapeHtml(row.averageCallTime || "-")}</td></tr>`).join("") : '<tr><td colspan="4">No CSR calling agents found.</td></tr>';
+}
+
+async function initializeCsrQueue() {
+    if (!isCsrUser()) return;
+    await ensureCsrReferenceData();
+    $("csrQueueHeading").textContent = isCsrAdmin() ? "CSR Pending & Assignment" : "My Calling Queue";
+    $("csrAssignmentPanel")?.classList.toggle("hidden", !isCsrAdmin());
+    await loadCsrQueue();
+}
+
+async function loadCsrQueue() {
+    if (!isCsrUser()) return;
+    try {
+        const response = await server(isCsrAdmin() ? "csrAdminQueue" : "csrAgentQueue", csrFilters());
+        if (!response.success) throw new Error(response.message);
+        APP.csr.tickets = response.data || [];
+        renderCsrQueue(APP.csr.tickets);
+    } catch (error) {
+        showToast(error.message || "Unable to load the CSR queue.", "error");
+    }
+}
+
+function renderCsrQueue(tickets) {
+    const body = $("csrQueueBody");
+    if (!body) return;
+    const isAdmin = isCsrAdmin();
+    body.innerHTML = tickets.length ? tickets.map(ticket => `<tr>
+        ${isAdmin ? `<td><input class="csr-ticket-check" type="checkbox" value="${escapeHtml(ticket.ticketId)}" aria-label="Select ${escapeHtml(ticket.ticketId)}"></td>` : ""}
+        <td>${escapeHtml(ticket.ticketId)}</td><td>${escapeHtml(ticket.submissionId)}</td><td>${escapeHtml(ticket.orderNumber)}</td><td>${escapeHtml(ticket.riderName)}</td>
+        <td>${escapeHtml(ticket.zone)}</td><td>${escapeHtml(ticket.warehouse)}</td><td>${escapeHtml(ticket.lmHub)}</td>
+        <td>${statusBadge(ticket.currentStatus)}</td><td>${escapeHtml(ticket.currentAssignedAgent || "-")}</td><td>${escapeHtml(ticket.lastActivityAt || "-")}</td>
+        <td><button class="primary-btn csr-open-ticket" data-ticket-id="${escapeHtml(ticket.ticketId)}" type="button">${isAdmin ? "Review / Assign" : "Open Call"}</button></td>
+    </tr>`).join("") : `<tr><td colspan="${isAdmin ? 12 : 11}">No CSR tickets found.</td></tr>`;
+    body.querySelectorAll(".csr-open-ticket").forEach(button => button.addEventListener("click", () => openCsrTicket(button.dataset.ticketId)));
+}
+
+async function assignSelectedCsrTickets() {
+    const ticketIds = [...document.querySelectorAll(".csr-ticket-check:checked")].map(box => box.value);
+    const agentUsername = $("ddlCsrCallingAgent")?.value || "";
+    const slot = Number($("ddlCsrCallSlot")?.value || 1);
+    if (!ticketIds.length) return showToast("Select at least one CSR ticket.", "warning");
+    if (!agentUsername) return showToast("Select a Calling Agent.", "warning");
+    if (!await confirmAction({
+        title: "Assign selected tickets?",
+        message: "The selected tickets will be assigned for Call " + slot + ".",
+        confirmText: "Assign"
+    })) return;
+    try {
+        showLoader("Assigning CSR Tickets", "Please wait while assignments are saved securely.");
+        const response = await server("assignCsrTickets", ticketIds, agentUsername, slot);
+        if (!response.success) throw new Error(response.message);
+        showToast(response.message, "success");
+        await loadCsrQueue();
+    } catch (error) {
+        showToast(error.message || "Unable to assign CSR tickets.", "error");
+    } finally {
+        hideLoader();
+    }
+}
+
+async function openCsrTicket(ticketId) {
+
+    if (APP.csrOpening) return;
+
+    APP.csrOpening = true;
+    showLoader(
+        "Wait, opening your review...",
+        "Securing your exclusive CSR review window..."
+    );
+
+    try {
+
+        const claimAction = isCsrAdmin()
+            ? "claimCsrAdminReview"
+            : "claimCsrCallReview";
+
+        const claim = await server(claimAction, ticketId);
+        if (!claim.success) throw new Error(claim.message);
+
+        const response = await server("getCsrTicket", ticketId);
+        if (!response.success) throw new Error(response.message);
+
+        APP.csr.selectedTicket = response.data;
+        navigate("csrReview", "page-pull-up");
+
+    } catch (error) {
+
+        showToast(error.message || "Unable to open the CSR ticket.", "error");
+
+    } finally {
+
+        hideLoader();
+        APP.csrOpening = false;
+
+    }
+}
+
+
+async function claimCsrAdminReview() {
+    const ticketId = APP.csr.selectedTicket?.ticketId;
+    if (!ticketId) return;
+    const response = await server("claimCsrAdminReview", ticketId);
+    if (!response.success) return showToast(response.message, "error");
+    const ticket = await server("getCsrTicket", ticketId);
+    if (ticket.success) { APP.csr.selectedTicket = ticket.data; renderCsrReview(); }
+}
+
+function renderCsrReview() {
+    const ticket = APP.csr.selectedTicket;
+    if (!ticket) return;
+    $("csrTicketDetails").innerHTML = csrDetailMarkup([
+        ["CSR Ticket ID", ticket.ticketId], ["Submission ID", ticket.submissionId], ["Order Number", ticket.orderNumber], ["Rider", ticket.riderName],
+        ["Zone", ticket.zone], ["Warehouse", ticket.warehouse], ["LM Hub", ticket.lmHub], ["Reason", ticket.reason],
+        ["Current Status", ticket.currentStatus], ["Final Status", ticket.finalStatus], ["Current Assigned Agent", ticket.currentAssignedAgent || "-"], ["Created At", ticket.createdAt]
+    ]);
+    $("csrRtoContext").innerHTML = csrDetailMarkup([
+        ["First Attempt Delivery", ticket.firstAttemptAt], ["Last Attempt Delivery", ticket.lastAttemptAt], ["Prior Submissions", ticket.priorSubmissionCount],
+        ["NDR Pushed By", ticket.ndrPushedBy], ["NDR Pushed At", ticket.ndrPushedAt], ["RTO Reviewed By", ticket.rtoReviewedBy], ["RTO Approved On", ticket.rtoApprovedOn], ["RTO Manager Remarks", ticket.rtoManagerRemarks]
+    ]);
+    $("csrAdminReviewCard")?.classList.toggle("hidden", !isCsrAdmin());
+    $("csrAdminReviewMessage").textContent = ticket.reviewOpenedBy ?
+        "Review is currently owned by " + ticket.reviewOpenedBy + ". Use the CSR Pending screen to assign the selected call." :
+        "Open an exclusive assignment review before using bulk assignment.";
+    renderCsrCallCards(ticket);
+}
+
+function csrDetailMarkup(entries) {
+    return entries.map(([label, value]) => `<div class="csr-detail-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value || "-")}</strong></div>`).join("");
+}
+
+function renderCsrCallCards(ticket) {
+    const container = $("csrCallCards");
+    if (!container) return;
+    const next = ticket.calls.find(call => call.agentName && !call.remark);
+    container.innerHTML = ticket.calls.map(call => {
+        const mayCall = isCsrCallingAgent() && next && next.slot === call.slot &&
+            String(call.agentName).toLowerCase() === csrMyName().toLowerCase() && ticket.finalStatus === "OPEN";
+        const completed = call.remark ? `<div class="csr-call-summary"><strong>${escapeHtml(call.remark)}</strong><span>${escapeHtml(call.completedAt)} · ${escapeHtml(call.completionTime)}</span></div>` : "";
+        if (!mayCall) return `<article class="csr-call-card"><h3>Call ${call.slot}</h3><p><b>Assigned to:</b> ${escapeHtml(call.agentName || "Not assigned")}</p><p><b>Assigned at:</b> ${escapeHtml(call.assignedAt || "-")}</p>${completed || '<p class="muted">Awaiting assignment or calling action.</p>'}</article>`;
+        const third = call.slot === 3;
+        const options = (third ? APP.csr.closingOutcomes : APP.csr.reasons).map(reason => `<option value="${escapeHtml(reason)}">`).join("");
+        return `<article class="csr-call-card csr-call-action"><h3>Call ${call.slot}</h3><p>Assigned to you at ${escapeHtml(call.assignedAt || "-")}</p>
+          <label>${third ? "Final outcome" : "Quick calling reason"}</label><input id="csrCallReason${call.slot}" class="form-control" list="csrCallOptions${call.slot}" placeholder="Type to search or choose"><datalist id="csrCallOptions${call.slot}">${options}</datalist>
+          ${third ? '<p class="form-hint">Call 3 only permits a configured closure outcome.</p>' : `<label>Additional remark (optional)</label><textarea id="csrCallNotes${call.slot}" class="form-control" rows="3" placeholder="Add the calling outcome or note"></textarea>`}
+          <button class="primary-btn csr-save-call" data-slot="${call.slot}" type="button">Save Call ${call.slot}</button>
+        </article>`;
+    }).join("");
+    container.querySelectorAll(".csr-save-call").forEach(button => button.addEventListener("click", () => saveCsrCall(Number(button.dataset.slot))));
+}
+
+async function saveCsrCall(slot) {
+    const ticket = APP.csr.selectedTicket;
+    const reason = $("csrCallReason" + slot)?.value.trim() || "";
+    const notes = $("csrCallNotes" + slot)?.value.trim() || "";
+    try {
+        showLoader("Saving Calling Outcome", "Your CSR calling activity is being recorded.");
+        const response = await server("completeCsrCall", ticket.ticketId, reason, notes);
+        if (!response.success) throw new Error(response.message);
+        showToast(response.message, "success");
+        const refreshed = await server("getCsrTicket", ticket.ticketId);
+        if (refreshed.success) { APP.csr.selectedTicket = refreshed.data; renderCsrReview(); }
+    } catch (error) {
+        showToast(error.message || "Unable to save the calling outcome.", "error");
+    } finally {
+        hideLoader();
+    }
+}
+
+async function loadCsrRepository() {
+    if (!isCsrAdmin()) return;
+    try {
+        const response = await server("csrRepository", csrFilters("repository"));
+        if (!response.success) throw new Error(response.message);
+        const body = $("csrRepositoryBody");
+        const records = response.data || [];
+        body.innerHTML = records.length ? records.map(ticket => `<tr><td>${escapeHtml(ticket.ticketId)}</td><td>${escapeHtml(ticket.submissionId)}</td><td>${escapeHtml(ticket.orderNumber)}</td><td>${escapeHtml(ticket.zone)}</td><td>${escapeHtml(ticket.lmHub)}</td><td>${statusBadge(ticket.finalStatus)}</td><td>${escapeHtml(ticket.finalOutcome || "-")}</td><td>${escapeHtml(ticket.currentAssignedAgent || "-")}</td><td>${escapeHtml(ticket.createdAt)}</td><td>${escapeHtml(ticket.closedAt || "-")}</td></tr>`).join("") : '<tr><td colspan="10">No CSR tickets found.</td></tr>';
+    } catch (error) {
+        showToast(error.message || "Unable to load CSR history.", "error");
+    }
+}
+</script>
